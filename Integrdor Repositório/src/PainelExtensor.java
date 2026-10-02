@@ -20,7 +20,7 @@ public class PainelExtensor extends JPanel {
 
     private Timer timerAnimacao;
     private int larguraAtual;
-    private final int VELOCIDADE_ANIMACAO = 10;
+    private final int VELOCIDADE_ANIMACAO = 1000;
     private final int DELAY_MS = 10;
 
     // Interface para lidar com a ação de clique
@@ -120,7 +120,7 @@ public class PainelExtensor extends JPanel {
             }
         });
 
-        timerAnimacao.start();
+        timerAnimacao.start() ; 
     }
 
     private ImageIcon carregarIcone(String nomeImagem) {
