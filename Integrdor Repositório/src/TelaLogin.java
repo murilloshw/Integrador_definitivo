@@ -1,170 +1,917 @@
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.GraphicsDevice;
-import java.awt.GraphicsEnvironment;
-import java.awt.GridBagLayout;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.ImageIcon;
-import javax.swing.JButton;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JPasswordField;
-import javax.swing.JTextField;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import java.awt.*;
+import java.awt.event.*;
+import java.awt.geom.*;
 
 public class TelaLogin extends JFrame {
 
-    public TelaLogin() {
-        setTitle("Arcade Space");
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+    private JTextField email;
+    private JPasswordField senha;
 
-        // 1. REMOVE BORDAS E DEIXA EM TELA CHEIA SEM BARRA DE TAREFAS
+    private JButton olho;
+    private JButton login;
+
+    private boolean mostrarSenha = false;
+
+    // =========================================================
+    // CORES
+    // =========================================================
+
+    private static final Color FUNDO = new Color(1, 7, 18);
+
+    private static final Color FUNDO_AZUL = new Color(2, 12, 27);
+
+    private static final Color PAINEL = new Color(5, 16, 31);
+
+    private static final Color CAMPO = new Color(3, 13, 27);
+
+    private static final Color AZUL = new Color(32, 139, 248);
+
+    private static final Color AZUL_BORDA = new Color(39, 105, 168);
+
+    private static final Color AZUL_TEXTO = new Color(119, 182, 242);
+
+    private static final Color BRANCO = new Color(245, 247, 250);
+
+    // =========================================================
+    // TAMANHO DA REFERÊNCIA
+    // =========================================================
+
+    private static final double BASE_W = 1664.0;
+    private static final double BASE_H = 936.0;
+
+    // =========================================================
+    // CONSTRUTOR
+    // =========================================================
+
+    public TelaLogin() {
+
+        setTitle("Arcade");
+
         setUndecorated(true);
 
-        GraphicsDevice gd = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
-        if (gd.isFullScreenSupported()) {
-            gd.setFullScreenWindow(this);
-        } else {
-            setExtendedState(JFrame.MAXIMIZED_BOTH);
-        }
+        setDefaultCloseOperation(
+                JFrame.EXIT_ON_CLOSE);
 
-        // Tecla ESC para sair do programa
-        addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    System.exit(0);
-                }
-            }
-        });
-        setFocusable(true);
+        // Tela inteira
+        setExtendedState(
+                JFrame.MAXIMIZED_BOTH);
 
-        // Carrega a imagem de fundo
-        ImageIcon fundo = null;
-        try {
-            fundo = new ImageIcon(getClass().getResource("/imagens/fundo-login.png"));
-        } catch (Exception e) {
-            // Caso a imagem não exista no caminho especificado
-        }
+        criarTela();
 
-        JLabel background = new JLabel();
-        if (fundo != null && fundo.getImage() != null) {
-            background.setIcon(fundo);
-        } else {
-            background.setBackground(new Color(2, 12, 27));
-            background.setOpaque(true);
-        }
-
-        background.setLayout(new GridBagLayout());
-
-        JPanel loginPanel = new JPanel();
-        loginPanel.setLayout(new BoxLayout(loginPanel, BoxLayout.Y_AXIS));
-        loginPanel.setOpaque(false);
-        loginPanel.setPreferredSize(new Dimension(500, 520));
-
-        // Logo / titulo
-        JLabel titulo = new JLabel("ARCADE SPACE");
-        titulo.setFont(new Font("Arial", Font.BOLD, 42));
-        titulo.setForeground(new Color(255, 255, 255));
-        titulo.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        // Campo e-mail
-        JLabel emailLabel = new JLabel("E-MAIL");
-        emailLabel.setFont(new Font("Arial", Font.BOLD, 22));
-        emailLabel.setForeground(Color.WHITE);
-        emailLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        JTextField emailField = new JTextField();
-        emailField.setPreferredSize(new Dimension(400, 65));
-        emailField.setMaximumSize(new Dimension(400, 65));
-        emailField.setFont(new Font("Arial", Font.PLAIN, 24));
-        emailField.setBackground(new Color(18, 24, 58));
-        emailField.setForeground(Color.WHITE);
-        emailField.setCaretColor(Color.WHITE);
-        emailField.setAlignmentX(Component.CENTER_ALIGNMENT);
-        emailField.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(24, 75, 150), 2),
-                BorderFactory.createEmptyBorder(5, 15, 5, 15)));
-
-        // Campo senha
-        JLabel senhaLabel = new JLabel("SENHA");
-        senhaLabel.setFont(new Font("Arial", Font.BOLD, 22));
-        senhaLabel.setForeground(Color.WHITE);
-        senhaLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        JPasswordField senhaField = new JPasswordField();
-        senhaField.setPreferredSize(new Dimension(400, 65));
-        senhaField.setMaximumSize(new Dimension(400, 65));
-        senhaField.setFont(new Font("Arial", Font.PLAIN, 24));
-        senhaField.setBackground(new Color(18, 24, 58));
-        senhaField.setForeground(Color.WHITE);
-        senhaField.setCaretColor(Color.WHITE);
-        senhaField.setAlignmentX(Component.CENTER_ALIGNMENT);
-        senhaField.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(24, 75, 150), 2),
-                BorderFactory.createEmptyBorder(5, 15, 5, 15)));
-
-        // Botão entrar
-        JButton entrarBtn = new JButton("ENTRAR");
-        entrarBtn.setPreferredSize(new Dimension(400, 60));
-        entrarBtn.setMaximumSize(new Dimension(400, 60));
-        entrarBtn.setFont(new Font("Arial", Font.BOLD, 26));
-        entrarBtn.setBackground(new Color(24, 75, 150));
-        entrarBtn.setForeground(Color.WHITE);
-        entrarBtn.setBorder(BorderFactory.createLineBorder(new Color(24, 75, 150), 1));
-        entrarBtn.setFocusPainted(false);
-        entrarBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-        entrarBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        // 2. AÇÃO PARA NAVEGAR PARA O APP PRINCIPAL
-        entrarBtn.addActionListener(e -> abrirAppPrincipal());
-
-        // Container central
-        JPanel form = new JPanel();
-        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
-        form.setOpaque(false); // Definido como transparente para sumir com o fundo cinza
-        form.setPreferredSize(new Dimension(450, 400));
-        form.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        form.add(Box.createVerticalStrut(20));
-        form.add(emailLabel);
-        form.add(Box.createVerticalStrut(10));
-        form.add(emailField);
-        form.add(Box.createVerticalStrut(25));
-        form.add(senhaLabel);
-        form.add(Box.createVerticalStrut(10));
-        form.add(senhaField);
-        form.add(Box.createVerticalStrut(25));
-        form.add(entrarBtn);
-
-        loginPanel.add(Box.createVerticalStrut(20));
-        loginPanel.add(titulo);
-        loginPanel.add(Box.createVerticalStrut(35));
-        loginPanel.add(form);
-
-        background.add(loginPanel);
-
-        setContentPane(background);
         setVisible(true);
     }
 
-    private void abrirAppPrincipal() {
-        // Abre a tela principal App
-        new App().setVisible(true);
-        // Fecha a tela de login
-        this.dispose();
+    // =========================================================
+    // CRIAR TELA
+    // =========================================================
+
+    private void criarTela() {
+
+        Tela tela = new Tela();
+
+        setContentPane(tela);
+
+        // =====================================================
+        // EMAIL
+        // =====================================================
+
+        email = new JTextField();
+
+        email.setFont(
+                new Font(
+                        "Arial",
+                        Font.PLAIN,
+                        16));
+
+        email.setForeground(BRANCO);
+
+        email.setCaretColor(BRANCO);
+
+        email.setOpaque(false);
+
+        email.setBorder(
+                new EmptyBorder(
+                        0,
+                        48,
+                        0,
+                        10));
+
+        tela.add(email);
+
+        // =====================================================
+        // SENHA
+        // =====================================================
+
+        senha = new JPasswordField();
+
+        senha.setFont(
+                new Font(
+                        "Arial",
+                        Font.PLAIN,
+                        16));
+
+        senha.setForeground(BRANCO);
+
+        senha.setCaretColor(BRANCO);
+
+        senha.setOpaque(false);
+
+        senha.setEchoChar('●');
+
+        senha.setBorder(
+                new EmptyBorder(
+                        0,
+                        48,
+                        0,
+                        45));
+
+        tela.add(senha);
+
+        // =====================================================
+        // BOTÃO OLHO
+        // =====================================================
+
+        olho = new JButton();
+
+        olho.setOpaque(false);
+
+        olho.setContentAreaFilled(false);
+
+        olho.setBorderPainted(false);
+
+        olho.setFocusPainted(false);
+
+        olho.setText("");
+
+        olho.setCursor(
+                new Cursor(
+                        Cursor.HAND_CURSOR));
+
+        olho.addActionListener(
+                e -> alternarSenha());
+
+        tela.add(olho);
+
+        // =====================================================
+        // BOTÃO LOGIN
+        // =====================================================
+
+        login = new JButton();
+
+        login.setOpaque(false);
+
+        login.setContentAreaFilled(false);
+
+        login.setBorderPainted(false);
+
+        login.setFocusPainted(false);
+
+        login.setCursor(
+                new Cursor(
+                        Cursor.HAND_CURSOR));
+
+        login.addActionListener(
+                e -> fazerLogin());
+
+        tela.add(login);
+
+        // =====================================================
+        // ENTER
+        // =====================================================
+
+        email.addActionListener(
+                e -> fazerLogin());
+
+        senha.addActionListener(
+                e -> fazerLogin());
+
+        // =====================================================
+        // ESC
+        // =====================================================
+
+        tela.getInputMap(
+                JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_ESCAPE,
+                                0),
+                        "fechar");
+
+        tela.getActionMap().put(
+                "fechar",
+                new AbstractAction() {
+
+                    @Override
+                    public void actionPerformed(
+                            ActionEvent e) {
+
+                        dispose();
+                    }
+                });
     }
 
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            new TelaLogin();
-        });
+    // =========================================================
+    // MOSTRAR / ESCONDER SENHA
+    // =========================================================
+
+    private void alternarSenha() {
+
+        mostrarSenha = !mostrarSenha;
+
+        if (mostrarSenha) {
+
+            // Mostra a senha
+            senha.setEchoChar(
+                    (char) 0);
+
+        } else {
+
+            // Esconde a senha
+            senha.setEchoChar(
+                    '●');
+        }
+
+        senha.requestFocus();
+
+        // Atualiza o desenho do olho
+        repaint();
+    }
+
+    // =========================================================
+    // LOGIN
+    // =========================================================
+
+    private void fazerLogin() {
+
+        String usuario = email.getText().trim();
+
+        String senhaDigitada = new String(
+                senha.getPassword());
+
+        // =====================================================
+        // VERIFICA CAMPOS VAZIOS
+        // =====================================================
+
+        if (usuario.isEmpty()
+                ||
+                senhaDigitada.isEmpty()) {
+
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Preencha o email e a senha.",
+                    "Atenção",
+                    JOptionPane.WARNING_MESSAGE);
+
+            return;
+        }
+
+        // =====================================================
+        // LOGIN
+        // =====================================================
+
+        if (usuario.equals("admin")
+                &&
+                senhaDigitada.equals("1234")) {
+
+            // Abre a tela App
+            App app = new App();
+
+            app.setVisible(true);
+
+            // Fecha a tela de login
+            dispose();
+
+        } else {
+
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Email ou senha incorretos.",
+                    "Erro",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // =========================================================
+    // PAINEL PRINCIPAL
+    // =========================================================
+
+    class Tela extends JPanel {
+
+        private double escala = 1.0;
+
+        private int deslocamentoX;
+
+        private int deslocamentoY;
+
+        public Tela() {
+
+            setLayout(null);
+
+            setBackground(FUNDO);
+        }
+
+        // =====================================================
+        // CALCULA ESCALA
+        // =====================================================
+
+        private void calcularEscala() {
+
+            double escalaX = getWidth() / BASE_W;
+
+            double escalaY = getHeight() / BASE_H;
+
+            escala = Math.min(
+                    escalaX,
+                    escalaY);
+
+            int larguraFinal = (int) (BASE_W * escala);
+
+            int alturaFinal = (int) (BASE_H * escala);
+
+            deslocamentoX = (getWidth() - larguraFinal) / 2;
+
+            deslocamentoY = (getHeight() - alturaFinal) / 2;
+        }
+
+        // =====================================================
+        // CONVERTE X
+        // =====================================================
+
+        private int X(double x) {
+
+            return deslocamentoX
+                    +
+                    (int) (x * escala);
+        }
+
+        // =====================================================
+        // CONVERTE Y
+        // =====================================================
+
+        private int Y(double y) {
+
+            return deslocamentoY
+                    +
+                    (int) (y * escala);
+        }
+
+        // =====================================================
+        // CONVERTE TAMANHO
+        // =====================================================
+
+        private int S(double valor) {
+
+            return (int) (valor * escala);
+        }
+
+        // =====================================================
+        // POSIÇÃO DOS COMPONENTES
+        // =====================================================
+
+        @Override
+        public void doLayout() {
+
+            calcularEscala();
+
+            // =================================================
+            // EMAIL
+            // =================================================
+
+            email.setBounds(
+                    X(640),
+                    Y(421),
+                    S(382),
+                    S(54));
+
+            // =================================================
+            // SENHA
+            // =================================================
+
+            senha.setBounds(
+                    X(640),
+                    Y(526),
+                    S(382),
+                    S(55));
+
+            // =================================================
+            // OLHO
+            // =================================================
+
+            olho.setBounds(
+                    X(965),
+                    Y(526),
+                    S(57),
+                    S(55));
+
+            // =================================================
+            // BOTÃO LOGIN
+            // =================================================
+
+            login.setBounds(
+                    X(664),
+                    Y(617),
+                    S(334),
+                    S(62));
+        }
+
+        // =====================================================
+        // DESENHO
+        // =====================================================
+
+        @Override
+        protected void paintComponent(
+                Graphics g) {
+
+            super.paintComponent(g);
+
+            calcularEscala();
+
+            Graphics2D g2 = (Graphics2D) g.create();
+
+            g2.setRenderingHint(
+                    RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+
+            // =================================================
+            // FUNDO
+            // =================================================
+
+            GradientPaint fundo = new GradientPaint(
+                    0,
+                    0,
+                    FUNDO_AZUL,
+                    getWidth(),
+                    getHeight(),
+                    FUNDO);
+
+            g2.setPaint(fundo);
+
+            g2.fillRect(
+                    0,
+                    0,
+                    getWidth(),
+                    getHeight());
+
+            // =================================================
+            // DESENHO ESCALADO
+            // =================================================
+
+            g2.translate(
+                    deslocamentoX,
+                    deslocamentoY);
+
+            g2.scale(
+                    escala,
+                    escala);
+
+            // =================================================
+            // PAINEL
+            // =================================================
+
+            g2.setColor(PAINEL);
+
+            g2.fillRoundRect(
+                    585,
+                    172,
+                    492,
+                    582,
+                    17,
+                    17);
+
+            g2.setColor(
+                    AZUL_BORDA);
+
+            g2.setStroke(
+                    new BasicStroke(1.5f));
+
+            g2.drawRoundRect(
+                    585,
+                    172,
+                    492,
+                    582,
+                    17,
+                    17);
+
+            // =================================================
+            // LOGO
+            // =================================================
+
+            desenharLogo(
+                    g2,
+                    657,
+                    232);
+
+            // =================================================
+            // ARCADE
+            // =================================================
+
+            g2.setColor(BRANCO);
+
+            g2.setFont(
+                    new Font(
+                            "Arial",
+                            Font.PLAIN,
+                            47));
+
+            g2.drawString(
+                    "Arcade",
+                    837,
+                    307);
+
+            // =================================================
+            // EMAIL
+            // =================================================
+
+            g2.setColor(
+                    AZUL_TEXTO);
+
+            g2.setFont(
+                    new Font(
+                            "Arial",
+                            Font.PLAIN,
+                            17));
+
+            g2.drawString(
+                    "Email",
+                    640,
+                    408);
+
+            desenharCampo(
+                    g2,
+                    640,
+                    421,
+                    382,
+                    54);
+
+            desenharEmail(
+                    g2,
+                    657,
+                    438);
+
+            // =================================================
+            // PASSWORD
+            // =================================================
+
+            g2.setColor(
+                    AZUL_TEXTO);
+
+            g2.drawString(
+                    "Password",
+                    640,
+                    513);
+
+            desenharCampo(
+                    g2,
+                    640,
+                    526,
+                    382,
+                    55);
+
+            desenharCadeado(
+                    g2,
+                    658,
+                    542);
+
+            // =================================================
+            // OLHO
+            // =================================================
+
+            desenharOlho(
+                    g2,
+                    980,
+                    544);
+
+            // =================================================
+            // BOTÃO LOGIN
+            // =================================================
+
+            g2.setColor(AZUL);
+
+            g2.fillRoundRect(
+                    664,
+                    617,
+                    334,
+                    62,
+                    10,
+                    10);
+
+            g2.setColor(
+                    new Color(
+                            70,
+                            166,
+                            255));
+
+            g2.setStroke(
+                    new BasicStroke(1));
+
+            g2.drawRoundRect(
+                    664,
+                    617,
+                    334,
+                    62,
+                    10,
+                    10);
+
+            g2.setColor(Color.WHITE);
+
+            g2.setFont(
+                    new Font(
+                            "Arial",
+                            Font.PLAIN,
+                            22));
+
+            String texto = "Log in";
+
+            FontMetrics fm = g2.getFontMetrics();
+
+            int tx = 831
+                    -
+                    fm.stringWidth(texto) / 2;
+
+            int ty = 617
+                    +
+                    (62 - fm.getHeight()) / 2
+                    +
+                    fm.getAscent();
+
+            g2.drawString(
+                    texto,
+                    tx,
+                    ty);
+
+            g2.dispose();
+        }
+
+        // =====================================================
+        // DESENHAR CAMPO
+        // =====================================================
+
+        private void desenharCampo(
+                Graphics2D g,
+                int x,
+                int y,
+                int w,
+                int h) {
+
+            g.setColor(CAMPO);
+            // oi
+            g.fillRoundRect(
+                    x,
+                    y,
+                    w,
+                    h,
+                    7,
+                    7);
+
+            g.setColor(
+                    new Color(
+                            39,
+                            91,
+                            145));
+
+            g.setStroke(
+                    new BasicStroke(1.5f));
+
+            g.drawRoundRect(
+                    x,
+                    y,
+                    w,
+                    h,
+                    7,
+                    7);
+        }
+
+        // =====================================================
+        // LOGO
+        // =====================================================
+
+        private void desenharLogo(
+                Graphics2D g,
+                int x,
+                int y) {
+
+            Graphics2D d = (Graphics2D) g.create();
+
+            d.translate(
+                    x,
+                    y);
+
+            Path2D a = new Path2D.Double();
+
+            a.moveTo(
+                    83,
+                    3);
+
+            a.lineTo(
+                    30,
+                    100);
+
+            a.lineTo(
+                    55,
+                    100);
+
+            a.lineTo(
+                    83,
+                    47);
+
+            a.lineTo(
+                    110,
+                    100);
+
+            a.lineTo(
+                    137,
+                    100);
+
+            a.closePath();
+
+            d.setColor(BRANCO);
+
+            d.fill(a);
+
+            Path2D parte = new Path2D.Double();
+
+            parte.moveTo(
+                    78,
+                    47);
+
+            parte.lineTo(
+                    94,
+                    47);
+
+            parte.lineTo(
+                    116,
+                    100);
+
+            parte.lineTo(
+                    91,
+                    100);
+
+            parte.closePath();
+
+            d.setColor(AZUL);
+
+            d.fill(parte);
+
+            d.setColor(AZUL);
+
+            d.setStroke(
+                    new BasicStroke(
+                            7,
+                            BasicStroke.CAP_ROUND,
+                            BasicStroke.JOIN_ROUND));
+
+            d.drawArc(
+                    8,
+                    25,
+                    145,
+                    72,
+                    190,
+                    205);
+
+            d.dispose();
+        }
+
+        // =====================================================
+        // EMAIL
+        // =====================================================
+
+        private void desenharEmail(
+                Graphics2D g,
+                int x,
+                int y) {
+
+            g.setColor(
+                    AZUL_TEXTO);
+
+            g.setStroke(
+                    new BasicStroke(2));
+
+            g.drawRoundRect(
+                    x,
+                    y,
+                    23,
+                    18,
+                    3,
+                    3);
+
+            g.drawLine(
+                    x + 1,
+                    y + 1,
+                    x + 11,
+                    y + 10);
+
+            g.drawLine(
+                    x + 22,
+                    y + 1,
+                    x + 11,
+                    y + 10);
+        }
+
+        // =====================================================
+        // CADEADO
+        // =====================================================
+
+        private void desenharCadeado(
+                Graphics2D g,
+                int x,
+                int y) {
+
+            g.setColor(
+                    AZUL_TEXTO);
+
+            g.setStroke(
+                    new BasicStroke(2));
+
+            g.drawRoundRect(
+                    x,
+                    y + 9,
+                    20,
+                    16,
+                    3,
+                    3);
+
+            g.drawArc(
+                    x + 3,
+                    y,
+                    14,
+                    17,
+                    0,
+                    180);
+        }
+
+        // =====================================================
+        // OLHO
+        // =====================================================
+
+        private void desenharOlho(
+                Graphics2D g,
+                int x,
+                int y) {
+
+            g.setColor(
+                    AZUL_TEXTO);
+
+            g.setStroke(
+                    new BasicStroke(2));
+
+            // =================================================
+            // OLHO ABERTO
+            // =================================================
+
+            if (mostrarSenha) {
+
+                g.drawOval(
+                        x,
+                        y,
+                        22,
+                        15);
+
+                g.fillOval(
+                        x + 7,
+                        y + 4,
+                        8,
+                        8);
+
+            }
+
+            // =================================================
+            // OLHO FECHADO
+            // =================================================
+
+            else {
+
+                g.drawOval(
+                        x,
+                        y,
+                        22,
+                        15);
+
+                g.fillOval(
+                        x + 7,
+                        y + 4,
+                        8,
+                        8);
+
+                // Risco sobre o olho
+                g.drawLine(
+                        x - 3,
+                        y - 3,
+                        x + 25,
+                        y + 19);
+            }
+        }
+    }
+
+    // =========================================================
+    // MAIN
+    // =========================================================
+
+    public static void main(
+            String[] args) {
+
+        SwingUtilities.invokeLater(
+                TelaLogin::new);
     }
 }
