@@ -422,7 +422,7 @@ public class TelaLogin extends JFrame {
             // =================================================
 
             olho.setBounds(
-                    PX(965),
+                    PX(1039),
                     PY(526),
                     PS(57),
                     PS(55));
@@ -604,7 +604,7 @@ public class TelaLogin extends JFrame {
 
             desenharOlho(
                     g2,
-                    980,
+                    1039,
                     544);
 
             // =================================================
@@ -718,89 +718,7 @@ public class TelaLogin extends JFrame {
                 Graphics2D g,
                 int x,
                 int y) {
-
-            Graphics2D d =
-                    (Graphics2D) g.create();
-
-            d.translate(
-                    x,
-                    y);
-
-            Path2D a =
-                    new Path2D.Double();
-
-            a.moveTo(
-                    83,
-                    3);
-
-            a.lineTo(
-                    30,
-                    100);
-
-            a.lineTo(
-                    55,
-                    100);
-
-            a.lineTo(
-                    83,
-                    47);
-
-            a.lineTo(
-                    110,
-                    100);
-
-            a.lineTo(
-                    137,
-                    100);
-
-            a.closePath();
-
-            d.setColor(BRANCO);
-
-            d.fill(a);
-
-            Path2D parte =
-                    new Path2D.Double();
-
-            parte.moveTo(
-                    78,
-                    47);
-
-            parte.lineTo(
-                    94,
-                    47);
-
-            parte.lineTo(
-                    116,
-                    100);
-
-            parte.lineTo(
-                    91,
-                    100);
-
-            parte.closePath();
-
-            d.setColor(AZUL);
-
-            d.fill(parte);
-
-            d.setColor(AZUL);
-
-            d.setStroke(
-                    new BasicStroke(
-                            7,
-                            BasicStroke.CAP_ROUND,
-                            BasicStroke.JOIN_ROUND));
-
-            d.drawArc(
-                    8,
-                    25,
-                    145,
-                    72,
-                    190,
-                    205);
-
-            d.dispose();
+            g.dispose();
         }
 
         // =====================================================
