@@ -4,6 +4,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
+import java.net.URL;
 
 public class TelaLogin extends JFrame {
 
@@ -519,30 +520,43 @@ public class TelaLogin extends JFrame {
                     17);
 
             // =================================================
-            // LOGO
+            // LOGO ARCADE (IMAGEM)
             // =================================================
 
-            desenharLogo(
+            desenharLogoArcade(
                     g2,
-                    657,
-                    232);
-
-            // =================================================
-            // ARCADE
-            // =================================================
-
-            g2.setColor(BRANCO);
+                    650,
+                    120,
+                    360,
+                    105);
+                                g2.setColor(
+                    AZUL_TEXTO);
+        // =================================================
+        // ARCADE TEXTO
+        // =================================================
 
             g2.setFont(
                     new Font(
                             "Arial",
                             Font.PLAIN,
-                            47));
+                            40));
 
             g2.drawString(
-                    "Arcade",
-                    837,
-                    307);
+                    "ARCADE",
+                    750,+
+                    300);
+
+            desenharCampo(
+                    g2,
+                    640,
+                    421,
+                    382,
+                    54);
+
+            desenharEmail(
+                    g2,
+                    657,
+                    438);
 
             // =================================================
             // EMAIL
@@ -672,6 +686,53 @@ public class TelaLogin extends JFrame {
         }
 
         // =====================================================
+        // DESENHAR LOGO ARCADE
+        // =====================================================
+
+        private void desenharLogoArcade(
+                Graphics2D g,
+                int x,
+                int y,
+                int larguraMax,
+                int alturaMax) {
+
+            ImageIcon logo = carregarLogo();
+
+            if (logo == null) {
+                return;
+            }
+
+            Image imagem = logo.getImage();
+
+            int larguraOriginal = logo.getIconWidth();
+            int alturaOriginal = logo.getIconHeight();
+
+            if (larguraOriginal <= 0 || alturaOriginal <= 0) {
+                return;
+            }
+
+            // Mantém a proporção original da imagem.
+            double escalaLogo = Math.min(
+                    (double) larguraMax / larguraOriginal,
+                    (double) alturaMax / alturaOriginal);
+
+            int largura = (int) (larguraOriginal * escalaLogo);
+            int altura = (int) (alturaOriginal * escalaLogo);
+
+            // Centraliza a logo na área reservada.
+            int posX = x + (larguraMax - largura) / 2;
+            int posY = y + (alturaMax - altura) / 2;
+
+            g.drawImage(
+                    imagem,
+                    posX,
+                    posY,
+                    largura,
+                    altura,
+                    null);
+        }
+
+        // =====================================================
         // DESENHAR CAMPO
         // =====================================================
 
@@ -710,101 +771,37 @@ public class TelaLogin extends JFrame {
                     7);
         }
 
-        // =====================================================
-        // LOGO
-        // =====================================================
+    private ImageIcon carregarLogo() {
 
-        private void desenharLogo(
-                Graphics2D g,
-                int x,
-                int y) {
-
-            Graphics2D d =
-                    (Graphics2D) g.create();
-
-            d.translate(
-                    x,
-                    y);
-
-            Path2D a =
-                    new Path2D.Double();
-
-            a.moveTo(
-                    83,
-                    3);
-
-            a.lineTo(
-                    30,
-                    100);
-
-            a.lineTo(
-                    55,
-                    100);
-
-            a.lineTo(
-                    83,
-                    47);
-
-            a.lineTo(
-                    110,
-                    100);
-
-            a.lineTo(
-                    137,
-                    100);
-
-            a.closePath();
-
-            d.setColor(BRANCO);
-
-            d.fill(a);
-
-            Path2D parte =
-                    new Path2D.Double();
-
-            parte.moveTo(
-                    78,
-                    47);
-
-            parte.lineTo(
-                    94,
-                    47);
-
-            parte.lineTo(
-                    116,
-                    100);
-
-            parte.lineTo(
-                    91,
-                    100);
-
-            parte.closePath();
-
-            d.setColor(AZUL);
-
-            d.fill(parte);
-
-            d.setColor(AZUL);
-
-            d.setStroke(
-                    new BasicStroke(
-                            7,
-                            BasicStroke.CAP_ROUND,
-                            BasicStroke.JOIN_ROUND));
-
-            d.drawArc(
-                    8,
-                    25,
-                    145,
-                    72,
-                    190,
-                    205);
-
-            d.dispose();
+        // 1) Tenta pelo classpath (funciona quando a pasta images
+        //    foi configurada como recurso do projeto).
+        URL resource = getClass().getResource("/images/Logo_arcade.png");
+        if (resource != null) {
+            return new ImageIcon(resource);
         }
 
-        // =====================================================
-        // EMAIL
+        // 2) No VS Code/Java comum, a imagem normalmente fica em:
+        //    src/images/Logo_arcade.png
+        String[] caminhos = {
+                "src/images/Logo_arcade.png",
+                "images/Logo_arcade.png",
+                "./src/images/Logo_arcade.png",
+                "./images/Logo_arcade.png"
+        };
+
+        for (String caminho : caminhos) {
+            java.io.File arquivo = new java.io.File(caminho);
+            if (arquivo.exists()) {
+                return new ImageIcon(arquivo.getAbsolutePath());
+            }
+        }
+
+        System.out.println("ERRO: Logo_arcade.png não encontrada.");
+        return null;
+    }
+
+    // =====================================================
+    // EMAIL
         // =====================================================
 
         private void desenharEmail(
