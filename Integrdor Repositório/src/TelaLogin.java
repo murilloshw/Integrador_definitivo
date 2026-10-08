@@ -3,7 +3,6 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.geom.*;
 import java.net.URL;
 
 public class TelaLogin extends JFrame {
@@ -101,7 +100,7 @@ public class TelaLogin extends JFrame {
         email.setBorder(
                 new EmptyBorder(
                         0,
-                        48,
+                        68,
                         0,
                         10));
 
@@ -130,7 +129,7 @@ public class TelaLogin extends JFrame {
         senha.setBorder(
                 new EmptyBorder(
                         0,
-                        55,
+                        68,
                         0,
                         60));
 

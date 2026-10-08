@@ -1,6 +1,5 @@
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Component;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
@@ -18,7 +17,6 @@ import javax.swing.SwingConstants;
 //entony vittor´peaswrwlemshnrsdf
 public class App extends JFrame {
 
-    private TelaLogin telaLogin;
     private TelaClientes telaClientes;
     private JPanel conteudoCentralPadrao;
 
@@ -85,13 +83,13 @@ public class App extends JFrame {
         // Informações dos botões da Sidebar
         String[][] botoesInfo = {
                 { "Início", "botao-de-inicio.png" },
-                { "Cliente", "botao cliente.png" },
-                { "Cartão", "botao cartao.png" },
+                { "Clientes", "botao cliente.png" },
+                { "Cartões", "botao cartao.png" },
                 { "Partidas", "botao partidas.png" },
-                { "Máquina", "botao maquinas.png" },
-                { "Recarga", "botao recarga.png" },
-                { "Prémio", "botao premio.png" },
-                { "Funcionário", "botao funcionario.png" }
+                { "Máquinas", "botao maquinas.png" },
+                { "Recargas", "botao recarga.png" },
+                { "Prêmios", "botao premio.png" },
+                { "Funcionários", "botao funcionario.png" }
         };
 
         // Criar os botões extensíveis
@@ -104,7 +102,7 @@ public class App extends JFrame {
 
             // Ação ao clicar no botão
             botaoExtensivel.setAcaoClique(() -> {
-                if (texto.equalsIgnoreCase("Cliente")) {
+                if (texto.equalsIgnoreCase("Clientes")) {
                     telaClientes.setVisible(true);
                     conteudoCentralPadrao.setVisible(false);
                 } else if (texto.equalsIgnoreCase("Início")) {

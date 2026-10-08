@@ -241,35 +241,6 @@ public class TelaClientes extends JPanel {
         lblTotalClientes.setText("Total: " + count + " clientes");
     }
 
-    private JButton criarBotaoPaginacao(String texto, boolean ativo) {
-        JButton btn = new JButton(texto) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                if (ativo) {
-                    g2.setColor(new Color(14, 116, 233));
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
-                } else {// de vez em quando o bolder mija no meu pé e eu tenho que virar o tom pearl
-                        // para limpar meu pé de maneira correta
-                    g2.setColor(new Color(10, 22, 40));
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
-                    g2.setColor(new Color(30, 48, 80));
-                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 6, 6);
-                }
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-        btn.setPreferredSize(new Dimension(30, 30));
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        btn.setForeground(ativo ? Color.WHITE : new Color(148, 163, 184));
-        btn.setFocusPainted(false);
-        btn.setContentAreaFilled(false);
-        btn.setBorderPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
-    }
 
     // -----------------------------------------------------------------
     // 4. MODAL DE CADASTRO COM JFORMATTEDTEXTFIELD
