@@ -1,5 +1,6 @@
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
@@ -19,7 +20,6 @@ public class App extends JFrame {
 
     private TelaLogin telaLogin;
     private TelaClientes telaClientes;
-    private TelaCartao telaCartao;
     private JPanel conteudoCentralPadrao;
 
     public App() {
@@ -37,6 +37,7 @@ public class App extends JFrame {
             setExtendedState(JFrame.MAXIMIZED_BOTH);
         }
 
+        //colocando o icone da janela
         setIconImage(carregarIconeJanela());
 
         // Tecla ESC para fechar o programa rapidamente
@@ -67,13 +68,7 @@ public class App extends JFrame {
         telaClientes = new TelaClientes();
         telaClientes.setBounds(70, 0, larguraTela - 70, alturaTela);
         telaClientes.setVisible(false);
-        layeredPane.add((java.awt.Component) telaClientes, Integer.valueOf(JLayeredPane.DEFAULT_LAYER));
-
-        // Instância da Tela de Cartões (Inicia Oculta)
-        telaCartao = new TelaCartao();
-        telaCartao.setBounds(70, 0, larguraTela - 70, alturaTela);
-        telaCartao.setVisible(false);
-        layeredPane.add((java.awt.Component) telaCartao, Integer.valueOf(JLayeredPane.DEFAULT_LAYER));
+        layeredPane.add(telaClientes, JLayeredPane.DEFAULT_LAYER);
 
         // Sidebar Fixa de Fundo
         JPanel sidebar = new JPanel();
@@ -115,12 +110,6 @@ public class App extends JFrame {
                 } else if (texto.equalsIgnoreCase("Início")) {
                     telaClientes.setVisible(false);
                     conteudoCentralPadrao.setVisible(true);
-                } else if (texto.equalsIgnoreCase("Cartão")) {
-                    telaClientes.setVisible(false);
-                    telaCartao.setVisible(true);
-                    conteudoCentralPadrao.setVisible(false);
-                    // Ação para o botão "Cartão"
-                    // Por exemplo, você pode mostrar a tela de cartões aqui
                 }
             });
 
@@ -138,7 +127,6 @@ public class App extends JFrame {
                 sidebar.setBounds(0, 0, 70, h);
                 conteudoCentralPadrao.setBounds(70, 0, w - 70, h);
                 telaClientes.setBounds(70, 0, w - 70, h);
-                telaCartao.setBounds(70, 0, w - 70, h);
             }
         });
     }
