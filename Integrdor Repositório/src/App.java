@@ -13,6 +13,19 @@ import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
+import java.sql.Connection;
+import java.sql.DriverManager;
+
+class TesteDriver {
+    public static void main(String[] args) {
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            System.out.println("SUCESSO: O driver do MySQL esta pronto para uso!");
+        } catch (ClassNotFoundException e) {
+            System.out.println("ERRO: O driver nao foi encontrado.");
+        }
+    }
+}
 
 //entony vittor´peaswrwlemshnrsdf
 public class App extends JFrame {
