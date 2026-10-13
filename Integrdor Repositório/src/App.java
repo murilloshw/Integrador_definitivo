@@ -15,17 +15,6 @@ import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 
 
-class TesteDriver {
-    public static void main(String[] args) {
-        try {
-            Class.forName("com.mysql.cj.jdbc.Driver");
-            System.out.println("SUCESSO: O driver do MySQL esta pronto para uso!");
-        } catch (ClassNotFoundException e) {
-            System.out.println("ERRO: O driver nao foi encontrado.");
-        }
-    }
-}
-
 //entony vittor´peaswrwlemshnrsdf
 public class App extends JFrame {
 
@@ -67,7 +56,7 @@ public class App extends JFrame {
 
         int larguraTela = getWidth();
         int alturaTela = getHeight();
-
+// quando o bolder 
         // Painel Central Padrão
         conteudoCentralPadrao = new JPanel();
         conteudoCentralPadrao.setBackground(new Color(2, 12, 27));
