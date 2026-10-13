@@ -13,8 +13,7 @@ import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
-import java.sql.Connection;
-import java.sql.DriverManager;
+
 
 class TesteDriver {
     public static void main(String[] args) {
