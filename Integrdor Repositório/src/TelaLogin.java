@@ -1,8 +1,9 @@
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.geom.*;
+import java.net.URL;
 
 public class TelaLogin extends JFrame {
 
@@ -19,24 +20,29 @@ public class TelaLogin extends JFrame {
     // =========================================================
 
     private static final Color FUNDO = new Color(1, 7, 18);
-
     private static final Color FUNDO_AZUL = new Color(2, 12, 27);
-
     private static final Color PAINEL = new Color(5, 16, 31);
-
     private static final Color CAMPO = new Color(3, 13, 27);
 
     private static final Color AZUL = new Color(32, 139, 248);
-
     private static final Color AZUL_BORDA = new Color(39, 105, 168);
-
     private static final Color AZUL_TEXTO = new Color(119, 182, 242);
 
     private static final Color BRANCO = new Color(245, 247, 250);
 
     // =========================================================
-    // TAMANHO DA REFERÊNCIA
+    // RESOLUÇÃO DE REFERÊNCIA
     // =========================================================
+
+    /*
+     * Todo o design original foi criado pensando em:
+     *
+     * Largura:  1664
+     * Altura:    936
+     *
+     * As coordenadas abaixo são convertidas automaticamente
+     * para porcentagens dentro das funções PX() e PY().
+     */
 
     private static final double BASE_W = 1664.0;
     private static final double BASE_H = 936.0;
@@ -94,7 +100,7 @@ public class TelaLogin extends JFrame {
         email.setBorder(
                 new EmptyBorder(
                         0,
-                        48,
+                        68,
                         0,
                         10));
 
@@ -123,9 +129,9 @@ public class TelaLogin extends JFrame {
         senha.setBorder(
                 new EmptyBorder(
                         0,
-                        48,
+                        68,
                         0,
-                        45));
+                        60));
 
         tela.add(senha);
 
@@ -222,20 +228,17 @@ public class TelaLogin extends JFrame {
 
         if (mostrarSenha) {
 
-            // Mostra a senha
             senha.setEchoChar(
                     (char) 0);
 
         } else {
 
-            // Esconde a senha
             senha.setEchoChar(
                     '●');
         }
 
         senha.requestFocus();
 
-        // Atualiza o desenho do olho
         repaint();
     }
 
@@ -275,12 +278,10 @@ public class TelaLogin extends JFrame {
                 &&
                 senhaDigitada.equals("1234")) {
 
-            // Abre a tela App
             App app = new App();
 
             app.setVisible(true);
 
-            // Fecha a tela de login
             dispose();
 
         } else {
@@ -299,10 +300,17 @@ public class TelaLogin extends JFrame {
 
     class Tela extends JPanel {
 
+        /*
+         * Escala usada para manter a proporção original
+         * do design.
+         */
         private double escala = 1.0;
 
+        /*
+         * Espaço restante quando a proporção da tela
+         * é diferente de 1664x936.
+         */
         private int deslocamentoX;
-
         private int deslocamentoY;
 
         public Tela() {
@@ -318,28 +326,42 @@ public class TelaLogin extends JFrame {
 
         private void calcularEscala() {
 
-            double escalaX = getWidth() / BASE_W;
+            double escalaX =
+                    getWidth() / BASE_W;
 
-            double escalaY = getHeight() / BASE_H;
+            double escalaY =
+                    getHeight() / BASE_H;
 
+            /*
+             * Usa a menor escala para impedir que o layout
+             * seja deformado.
+             */
             escala = Math.min(
                     escalaX,
                     escalaY);
 
-            int larguraFinal = (int) (BASE_W * escala);
+            int larguraFinal =
+                    (int) (BASE_W * escala);
 
-            int alturaFinal = (int) (BASE_H * escala);
+            int alturaFinal =
+                    (int) (BASE_H * escala);
 
-            deslocamentoX = (getWidth() - larguraFinal) / 2;
+            deslocamentoX =
+                    (getWidth() - larguraFinal) / 2;
 
-            deslocamentoY = (getHeight() - alturaFinal) / 2;
+            deslocamentoY =
+                    (getHeight() - alturaFinal) / 2;
         }
 
         // =====================================================
         // CONVERTE X
         // =====================================================
 
-        private int X(double x) {
+        /*
+         * Recebe a coordenada original e converte para
+         * a posição proporcional da tela.
+         */
+        private int PX(double x) {
 
             return deslocamentoX
                     +
@@ -350,7 +372,7 @@ public class TelaLogin extends JFrame {
         // CONVERTE Y
         // =====================================================
 
-        private int Y(double y) {
+        private int PY(double y) {
 
             return deslocamentoY
                     +
@@ -361,9 +383,9 @@ public class TelaLogin extends JFrame {
         // CONVERTE TAMANHO
         // =====================================================
 
-        private int S(double valor) {
+        private int PS(double tamanho) {
 
-            return (int) (valor * escala);
+            return (int) (tamanho * escala);
         }
 
         // =====================================================
@@ -380,40 +402,40 @@ public class TelaLogin extends JFrame {
             // =================================================
 
             email.setBounds(
-                    X(640),
-                    Y(421),
-                    S(382),
-                    S(54));
+                    PX(640),
+                    PY(421),
+                    PS(382),
+                    PS(54));
 
             // =================================================
             // SENHA
             // =================================================
 
             senha.setBounds(
-                    X(640),
-                    Y(526),
-                    S(382),
-                    S(55));
+                    PX(640),
+                    PY(526),
+                    PS(382),
+                    PS(55));
 
             // =================================================
             // OLHO
             // =================================================
 
             olho.setBounds(
-                    X(965),
-                    Y(526),
-                    S(57),
-                    S(55));
+                    PX(1039),
+                    PY(526),
+                    PS(57),
+                    PS(55));
 
             // =================================================
             // BOTÃO LOGIN
             // =================================================
 
             login.setBounds(
-                    X(664),
-                    Y(617),
-                    S(334),
-                    S(62));
+                    PX(664),
+                    PY(617),
+                    PS(334),
+                    PS(62));
         }
 
         // =====================================================
@@ -428,7 +450,8 @@ public class TelaLogin extends JFrame {
 
             calcularEscala();
 
-            Graphics2D g2 = (Graphics2D) g.create();
+            Graphics2D g2 =
+                    (Graphics2D) g.create();
 
             g2.setRenderingHint(
                     RenderingHints.KEY_ANTIALIASING,
@@ -438,13 +461,14 @@ public class TelaLogin extends JFrame {
             // FUNDO
             // =================================================
 
-            GradientPaint fundo = new GradientPaint(
-                    0,
-                    0,
-                    FUNDO_AZUL,
-                    getWidth(),
-                    getHeight(),
-                    FUNDO);
+            GradientPaint fundo =
+                    new GradientPaint(
+                            0,
+                            0,
+                            FUNDO_AZUL,
+                            getWidth(),
+                            getHeight(),
+                            FUNDO);
 
             g2.setPaint(fundo);
 
@@ -495,30 +519,43 @@ public class TelaLogin extends JFrame {
                     17);
 
             // =================================================
-            // LOGO
+            // LOGO ARCADE (IMAGEM)
             // =================================================
 
-            desenharLogo(
+            desenharLogoArcade(
                     g2,
-                    657,
-                    232);
-
-            // =================================================
-            // ARCADE
-            // =================================================
-
-            g2.setColor(BRANCO);
+                    650,
+                    120,
+                    360,
+                    105);
+                                g2.setColor(
+                    AZUL_TEXTO);
+        // =================================================
+        // ARCADE TEXTO
+        // =================================================
 
             g2.setFont(
                     new Font(
                             "Arial",
                             Font.PLAIN,
-                            47));
+                            40));
 
             g2.drawString(
-                    "Arcade",
-                    837,
-                    307);
+                    "ARCADE",
+                    750,+
+                    300);
+
+            desenharCampo(
+                    g2,
+                    640,
+                    421,
+                    382,
+                    54);
+
+            desenharEmail(
+                    g2,
+                    657,
+                    438);
 
             // =================================================
             // EMAIL
@@ -580,7 +617,7 @@ public class TelaLogin extends JFrame {
 
             desenharOlho(
                     g2,
-                    980,
+                    1039,
                     544);
 
             // =================================================
@@ -624,13 +661,16 @@ public class TelaLogin extends JFrame {
 
             String texto = "Log in";
 
-            FontMetrics fm = g2.getFontMetrics();
+            FontMetrics fm =
+                    g2.getFontMetrics();
 
-            int tx = 831
+            int tx =
+                    831
                     -
                     fm.stringWidth(texto) / 2;
 
-            int ty = 617
+            int ty =
+                    617
                     +
                     (62 - fm.getHeight()) / 2
                     +
@@ -645,6 +685,53 @@ public class TelaLogin extends JFrame {
         }
 
         // =====================================================
+        // DESENHAR LOGO ARCADE
+        // =====================================================
+
+        private void desenharLogoArcade(
+                Graphics2D g,
+                int x,
+                int y,
+                int larguraMax,
+                int alturaMax) {
+
+            ImageIcon logo = carregarLogo();
+
+            if (logo == null) {
+                return;
+            }
+
+            Image imagem = logo.getImage();
+
+            int larguraOriginal = logo.getIconWidth();
+            int alturaOriginal = logo.getIconHeight();
+
+            if (larguraOriginal <= 0 || alturaOriginal <= 0) {
+                return;
+            }
+
+            // Mantém a proporção original da imagem.
+            double escalaLogo = Math.min(
+                    (double) larguraMax / larguraOriginal,
+                    (double) alturaMax / alturaOriginal);
+
+            int largura = (int) (larguraOriginal * escalaLogo);
+            int altura = (int) (alturaOriginal * escalaLogo);
+
+            // Centraliza a logo na área reservada.
+            int posX = x + (larguraMax - largura) / 2;
+            int posY = y + (alturaMax - altura) / 2;
+
+            g.drawImage(
+                    imagem,
+                    posX,
+                    posY,
+                    largura,
+                    altura,
+                    null);
+        }
+
+        // =====================================================
         // DESENHAR CAMPO
         // =====================================================
 
@@ -656,7 +743,7 @@ public class TelaLogin extends JFrame {
                 int h) {
 
             g.setColor(CAMPO);
-            // oi
+
             g.fillRoundRect(
                     x,
                     y,
@@ -683,98 +770,37 @@ public class TelaLogin extends JFrame {
                     7);
         }
 
-        // =====================================================
-        // LOGO
-        // =====================================================
+    private ImageIcon carregarLogo() {
 
-        private void desenharLogo(
-                Graphics2D g,
-                int x,
-                int y) {
-
-            Graphics2D d = (Graphics2D) g.create();
-
-            d.translate(
-                    x,
-                    y);
-
-            Path2D a = new Path2D.Double();
-
-            a.moveTo(
-                    83,
-                    3);
-
-            a.lineTo(
-                    30,
-                    100);
-
-            a.lineTo(
-                    55,
-                    100);
-
-            a.lineTo(
-                    83,
-                    47);
-
-            a.lineTo(
-                    110,
-                    100);
-
-            a.lineTo(
-                    137,
-                    100);
-
-            a.closePath();
-
-            d.setColor(BRANCO);
-
-            d.fill(a);
-
-            Path2D parte = new Path2D.Double();
-
-            parte.moveTo(
-                    78,
-                    47);
-
-            parte.lineTo(
-                    94,
-                    47);
-
-            parte.lineTo(
-                    116,
-                    100);
-
-            parte.lineTo(
-                    91,
-                    100);
-
-            parte.closePath();
-
-            d.setColor(AZUL);
-
-            d.fill(parte);
-
-            d.setColor(AZUL);
-
-            d.setStroke(
-                    new BasicStroke(
-                            7,
-                            BasicStroke.CAP_ROUND,
-                            BasicStroke.JOIN_ROUND));
-
-            d.drawArc(
-                    8,
-                    25,
-                    145,
-                    72,
-                    190,
-                    205);
-
-            d.dispose();
+        // 1) Tenta pelo classpath (funciona quando a pasta images
+        //    foi configurada como recurso do projeto).
+        URL resource = getClass().getResource("/images/Logo_arcade.png");
+        if (resource != null) {
+            return new ImageIcon(resource);
         }
 
-        // =====================================================
-        // EMAIL
+        // 2) No VS Code/Java comum, a imagem normalmente fica em:
+        //    src/images/Logo_arcade.png
+        String[] caminhos = {
+                "src/images/Logo_arcade.png",
+                "images/Logo_arcade.png",
+                "./src/images/Logo_arcade.png",
+                "./images/Logo_arcade.png"
+        };
+
+        for (String caminho : caminhos) {
+            java.io.File arquivo = new java.io.File(caminho);
+            if (arquivo.exists()) {
+                return new ImageIcon(arquivo.getAbsolutePath());
+            }
+        }
+
+        System.out.println("ERRO: Logo_arcade.png não encontrada.");
+        return null;
+    }
+
+    // =====================================================
+    // EMAIL
         // =====================================================
 
         private void desenharEmail(
@@ -894,7 +920,6 @@ public class TelaLogin extends JFrame {
                         8,
                         8);
 
-                // Risco sobre o olho
                 g.drawLine(
                         x - 3,
                         y - 3,
@@ -915,3 +940,4 @@ public class TelaLogin extends JFrame {
                 TelaLogin::new);
     }
 }
+

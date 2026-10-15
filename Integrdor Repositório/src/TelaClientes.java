@@ -136,10 +136,22 @@ public class TelaClientes extends JPanel {
         btnNovoCliente.setContentAreaFilled(false);
         btnNovoCliente.setBorderPainted(false);
         btnNovoCliente.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnNovoCliente.addActionListener(e -> abrirModalCadastro());
+        btnNovoCliente.addActionListener(e -> abrirModal(-1));
 
         painelAcoes.add(painelBusca, BorderLayout.WEST);
-        painelAcoes.add(btnNovoCliente, BorderLayout.EAST);
+        JButton btnEditar = criarBotaoEditar();
+        btnEditar.addActionListener(e -> {
+            int linha = linhaSelecionadaNoModelo();
+            if (linha >= 0) {
+                abrirModal(linha);
+            }
+        });
+
+        JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        painelBotoesTopo.setOpaque(false);
+        painelBotoesTopo.add(btnEditar);
+        painelBotoesTopo.add(btnNovoCliente);
+        painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
 
         painelTopoGeral.add(lblTitulo, BorderLayout.NORTH);
         painelTopoGeral.add(painelAcoes, BorderLayout.CENTER);
@@ -164,7 +176,8 @@ public class TelaClientes extends JPanel {
         painelCardTabela.setOpaque(false);
         painelCardTabela.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 
-        String[] colunas = { "ID ▾", "Nome ▾", "CPF ▾", "Telefone ▾" };
+        // As duas últimas colunas ficam escondidas na tabela; guardam os dados usados na edição
+        String[] colunas = { "ID ▾", "Nome ▾", "CPF ▾", "Telefone ▾", "Nascimento", "E-mail" };
 
         modeloTabela = new DefaultTableModel(colunas, 0) {
             @Override
@@ -174,6 +187,10 @@ public class TelaClientes extends JPanel {
         };
 
         tabela = new JTable(modeloTabela);
+        tabela.removeColumn(tabela.getColumnModel().getColumn(5));
+        tabela.removeColumn(tabela.getColumnModel().getColumn(4));
+        tabela.setSelectionBackground(new Color(23, 55, 94));
+        tabela.setSelectionForeground(Color.WHITE);
         sorter = new TableRowSorter<>(modeloTabela);
         tabela.setRowSorter(sorter);
 
@@ -236,49 +253,33 @@ public class TelaClientes extends JPanel {
         add(painelRodape, BorderLayout.SOUTH);
     }
 
+    /** Retorna o nome do cliente com o ID informado (ex.: "001") ou null se não existir. */
+    public String buscarNomePorId(String id) {
+        for (int i = 0; i < modeloTabela.getRowCount(); i++) {
+            if (String.valueOf(modeloTabela.getValueAt(i, 0)).equals(id)) {
+                return String.valueOf(modeloTabela.getValueAt(i, 1));
+            }
+        }
+        return null;
+    }
+
     private void atualizarTotal() {
         int count = tabela.getRowCount();
         lblTotalClientes.setText("Total: " + count + " clientes");
     }
 
-    private JButton criarBotaoPaginacao(String texto, boolean ativo) {
-        JButton btn = new JButton(texto) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                if (ativo) {
-                    g2.setColor(new Color(14, 116, 233));
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
-                } else {// de vez em quando o bolder mija no meu pé e eu tenho que virar o tom pearl
-                        // para limpar meu pé de maneira correta
-                    g2.setColor(new Color(10, 22, 40));
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
-                    g2.setColor(new Color(30, 48, 80));
-                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 6, 6);
-                }
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-        btn.setPreferredSize(new Dimension(30, 30));
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        btn.setForeground(ativo ? Color.WHITE : new Color(148, 163, 184));
-        btn.setFocusPainted(false);
-        btn.setContentAreaFilled(false);
-        btn.setBorderPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
-    }
 
     // -----------------------------------------------------------------
     // 4. MODAL DE CADASTRO COM JFORMATTEDTEXTFIELD
     // -----------------------------------------------------------------
-    private void abrirModalCadastro() {
-        JFrame parentFrame = (JFrame) SwingUtilities.getWindowAncestor(this);
-        JDialog modal = new JDialog(parentFrame, "Cadastrar Novo Cliente", true);
+    // linhaModelo < 0 => novo cadastro; senão edita a linha indicada
+    private void abrirModal(int linhaModelo) {
+        boolean edicao = linhaModelo >= 0;
+        java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
+        JDialog modal = new JDialog(parentWindow, edicao ? "Editar Cliente" : "Cadastrar Novo Cliente",
+                java.awt.Dialog.ModalityType.APPLICATION_MODAL);
         modal.setSize(440, 520);
-        modal.setLocationRelativeTo(parentFrame);
+        modal.setLocationRelativeTo(parentWindow);
         modal.setLayout(new BorderLayout());
 
         JPanel painelForm = new JPanel(new GridLayout(10, 1, 2, 2));
@@ -290,6 +291,14 @@ public class TelaClientes extends JPanel {
         JFormattedTextField txtDataNasc = criarCampoFormatado("##/##/####");
         JFormattedTextField txtTelefone = criarCampoFormatado("+## ## #####-####");
         JTextField txtEmail = criarCampoTexto();
+
+        if (edicao) {
+            txtNome.setText(String.valueOf(modeloTabela.getValueAt(linhaModelo, 1)));
+            txtCPF.setText(String.valueOf(modeloTabela.getValueAt(linhaModelo, 2)));
+            txtTelefone.setText(String.valueOf(modeloTabela.getValueAt(linhaModelo, 3)));
+            txtDataNasc.setText(String.valueOf(modeloTabela.getValueAt(linhaModelo, 4)));
+            txtEmail.setText(String.valueOf(modeloTabela.getValueAt(linhaModelo, 5)));
+        }
 
         painelForm.add(criarLabel("Nome Completo:"));
         painelForm.add(txtNome);
@@ -311,7 +320,7 @@ public class TelaClientes extends JPanel {
         btnCancelar.setFocusPainted(false);
         btnCancelar.addActionListener(e -> modal.dispose());
 
-        JButton btnSalvar = new JButton("Salvar Cliente");
+        JButton btnSalvar = new JButton(edicao ? "Salvar Alterações" : "Salvar Cliente");
         btnSalvar.setBackground(new Color(14, 116, 233));
         btnSalvar.setForeground(Color.WHITE);
         btnSalvar.setFocusPainted(false);
@@ -322,17 +331,27 @@ public class TelaClientes extends JPanel {
                 return;
             }
 
-            String idFormatado = String.format("%03d", proximoId++);
-
-            modeloTabela.addRow(new Object[] {
-                    idFormatado,
-                    txtNome.getText().trim(),
-                    txtCPF.getText().trim(),
-                    txtTelefone.getText().trim()
-            });
+            if (edicao) {
+                modeloTabela.setValueAt(txtNome.getText().trim(), linhaModelo, 1);
+                modeloTabela.setValueAt(txtCPF.getText(), linhaModelo, 2);
+                modeloTabela.setValueAt(txtTelefone.getText(), linhaModelo, 3);
+                modeloTabela.setValueAt(txtDataNasc.getText(), linhaModelo, 4);
+                modeloTabela.setValueAt(txtEmail.getText().trim(), linhaModelo, 5);
+            } else {
+                String idFormatado = String.format("%03d", proximoId++);
+                modeloTabela.addRow(new Object[] {
+                        idFormatado,
+                        txtNome.getText().trim(),
+                        txtCPF.getText(),
+                        txtTelefone.getText(),
+                        txtDataNasc.getText(),
+                        txtEmail.getText().trim()
+                });
+            }
 
             atualizarTotal();
-            JOptionPane.showMessageDialog(modal, "Cliente cadastrado com sucesso!", "Sucesso",
+            JOptionPane.showMessageDialog(modal,
+                    edicao ? "Cliente atualizado com sucesso!" : "Cliente cadastrado com sucesso!", "Sucesso",
                     JOptionPane.INFORMATION_MESSAGE);
             modal.dispose();
         });
@@ -343,6 +362,51 @@ public class TelaClientes extends JPanel {
         modal.add(painelForm, BorderLayout.CENTER);
         modal.add(painelBotoes, BorderLayout.SOUTH);
         modal.setVisible(true);
+    }
+
+    // Botão de lápis azul (ícone desenhado em código, sem depender de imagem/fonte)
+    private JButton criarBotaoEditar() {
+        JButton btn = new JButton() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getModel().isRollover() ? new Color(20, 40, 68) : new Color(13, 27, 46));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.setColor(new Color(30, 48, 80));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+
+                g2.translate(getWidth() / 2.0, getHeight() / 2.0);
+                g2.rotate(Math.toRadians(45));
+                g2.setColor(new Color(147, 197, 253)); // borracha
+                g2.fillRoundRect(-3, -11, 6, 3, 2, 2);
+                g2.setColor(new Color(14, 116, 233)); // corpo
+                g2.fillRect(-3, -8, 6, 12);
+                g2.setColor(new Color(56, 160, 255)); // ponta
+                g2.fillPolygon(new int[] { -3, 3, 0 }, new int[] { 4, 4, 10 }, 3);
+                g2.setColor(Color.WHITE); // grafite
+                g2.fillPolygon(new int[] { -1, 1, 0 }, new int[] { 8, 8, 10 }, 3);
+                g2.dispose();
+            }
+        };
+        btn.setPreferredSize(new Dimension(38, 38));
+        btn.setToolTipText("Editar selecionado");
+        btn.setFocusPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setRolloverEnabled(true);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+
+    private int linhaSelecionadaNoModelo() {
+        int viewRow = tabela.getSelectedRow();
+        if (viewRow < 0) {
+            JOptionPane.showMessageDialog(this, "Selecione uma linha da tabela para editar.", "Aviso",
+                    JOptionPane.WARNING_MESSAGE);
+            return -1;
+        }
+        return tabela.convertRowIndexToModel(viewRow);
     }
 
     private JLabel criarLabel(String texto) {
