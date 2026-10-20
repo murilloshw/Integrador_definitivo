@@ -20,6 +20,7 @@ public class App extends JFrame {
 
     private TelaClientes telaClientes;
     private TelaCartao telaCartao;
+    private TelaLogin telaLogin;
     private JPanel conteudoCentralPadrao;
 
     public App() {
@@ -57,7 +58,7 @@ public class App extends JFrame {
 
         int larguraTela = getWidth();
         int alturaTela = getHeight();
-// quando o bolder 
+
         // Painel Central Padrão
         conteudoCentralPadrao = new JPanel();
         conteudoCentralPadrao.setBackground(new Color(2, 12, 27));
@@ -75,6 +76,11 @@ public class App extends JFrame {
         telaCartao.setBounds(70, 0, larguraTela - 70, alturaTela);
         telaCartao.setVisible(false);
         layeredPane.add(telaCartao, JLayeredPane.DEFAULT_LAYER);
+
+        telaLogin = new TelaLogin();
+        telaLogin.setBounds(70, 0, larguraTela , alturaTela);
+        telaLogin.setVisible(false);
+        
 
         // Sidebar Fixa de Fundo
         JPanel sidebar = new JPanel();
@@ -97,7 +103,8 @@ public class App extends JFrame {
                 { "Máquinas", "botao maquinas.png" },
                 { "Recargas", "botao recarga.png" },
                 { "Prêmios", "botao premio.png" },
-                { "Funcionários", "botao funcionario.png" }
+                { "Funcionários", "botao funcionario.png" },
+                { "Sair", "botao saida.png" }
         };
 
         // Criar os botões extensíveis
@@ -110,19 +117,30 @@ public class App extends JFrame {
 
             // Ação ao clicar no botão
             botaoExtensivel.setAcaoClique(() -> {
-                if (texto.equalsIgnoreCase("Clientes")) {
+
+                 if (texto.equalsIgnoreCase("Clientes")) {
                     telaClientes.setVisible(true);
                     telaCartao.setVisible(false);
+                    telaLogin.setVisible(false);
                     conteudoCentralPadrao.setVisible(false);
                 } else if (texto.equalsIgnoreCase("Cartões")) {
                     telaCartao.atualizarNomesClientes();
                     telaCartao.setVisible(true);
                     telaClientes.setVisible(false);
+                    telaLogin.setVisible(false);
                     conteudoCentralPadrao.setVisible(false);
                 } else if (texto.equalsIgnoreCase("Início")) {
                     telaClientes.setVisible(false);
                     telaCartao.setVisible(false);
+                    telaLogin.setVisible(false);
                     conteudoCentralPadrao.setVisible(true);
+                }
+                else if (texto.equalsIgnoreCase("Sair")) {
+                    telaClientes.setVisible(false);
+                    telaCartao.setVisible(false);
+                    telaLogin.setVisible(true);
+                    conteudoCentralPadrao.setVisible(false);
+                    dispose(); // Fecha a janela principal
                 }
             });
 
