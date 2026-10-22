@@ -11,6 +11,7 @@ import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 
@@ -20,7 +21,7 @@ public class App extends JFrame {
 
     private TelaClientes telaClientes;
     private TelaCartao telaCartao;
-    private TelaLogin telaLogin;
+    private TelaFuncionarios telaFuncionarios;
     private JPanel conteudoCentralPadrao;
 
     public App() {
@@ -77,10 +78,11 @@ public class App extends JFrame {
         telaCartao.setVisible(false);
         layeredPane.add(telaCartao, JLayeredPane.DEFAULT_LAYER);
 
-        telaLogin = new TelaLogin();
-        telaLogin.setBounds(70, 0, larguraTela , alturaTela);
-        telaLogin.setVisible(false);
-        
+        // Instância da Tela de Funcionários (Inicia Oculta) - acesso só do Manager Master
+        telaFuncionarios = new TelaFuncionarios();
+        telaFuncionarios.setBounds(70, 0, larguraTela - 70, alturaTela);
+        telaFuncionarios.setVisible(false);
+        layeredPane.add(telaFuncionarios, JLayeredPane.DEFAULT_LAYER);
 
         // Sidebar Fixa de Fundo
         JPanel sidebar = new JPanel();
@@ -113,34 +115,39 @@ public class App extends JFrame {
             String texto = btn[0];
             String imagem = btn[1];
 
+            // O botão "Funcionários" só aparece para o Manager Master
+            if (texto.equals("Funcionários") && !Sessao.isManagerMaster()) {
+                continue;
+            }
+
             PainelExtensor botaoExtensivel = new PainelExtensor(texto, imagem, yAtual, 70, 180);
 
             // Ação ao clicar no botão
             botaoExtensivel.setAcaoClique(() -> {
 
-                 if (texto.equalsIgnoreCase("Clientes")) {
-                    telaClientes.setVisible(true);
-                    telaCartao.setVisible(false);
-                    telaLogin.setVisible(false);
-                    conteudoCentralPadrao.setVisible(false);
+                if (texto.equalsIgnoreCase("Clientes")) {
+                    mostrarTela(telaClientes);
                 } else if (texto.equalsIgnoreCase("Cartões")) {
                     telaCartao.atualizarNomesClientes();
-                    telaCartao.setVisible(true);
-                    telaClientes.setVisible(false);
-                    telaLogin.setVisible(false);
-                    conteudoCentralPadrao.setVisible(false);
+                    mostrarTela(telaCartao);
+                } else if (texto.equalsIgnoreCase("Funcionários")) {
+                    // Só o Manager Master pode abrir o cadastro de funcionários
+                    if (!Sessao.isManagerMaster()) {
+                        JOptionPane.showMessageDialog(this,
+                                "Apenas o Manager Master pode acessar Funcionários.",
+                                "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+                    mostrarTela(telaFuncionarios);
                 } else if (texto.equalsIgnoreCase("Início")) {
-                    telaClientes.setVisible(false);
-                    telaCartao.setVisible(false);
-                    telaLogin.setVisible(false);
-                    conteudoCentralPadrao.setVisible(true);
+                    mostrarTela(null);
                 }
                 else if (texto.equalsIgnoreCase("Sair")) {
-                    telaClientes.setVisible(false);
-                    telaCartao.setVisible(false);
-                    telaLogin.setVisible(true);
-                    conteudoCentralPadrao.setVisible(false);
-                    dispose(); // Fecha a janela principal
+                    // Encerra a sessão, sai da tela cheia e volta para uma tela de login nova
+                    Sessao.encerrar();
+                    GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().setFullScreenWindow(null);
+                    dispose();
+                    new TelaLogin();
                 }
             });
 
@@ -159,8 +166,17 @@ public class App extends JFrame {
                 conteudoCentralPadrao.setBounds(70, 0, w - 70, h);
                 telaClientes.setBounds(70, 0, w - 70, h);
                 telaCartao.setBounds(70, 0, w - 70, h);
+                telaFuncionarios.setBounds(70, 0, w - 70, h);
             }
         });
+    }
+
+    // Mostra apenas a tela informada (null = tela de início)
+    private void mostrarTela(JPanel alvo) {
+        telaClientes.setVisible(alvo == telaClientes);
+        telaCartao.setVisible(alvo == telaCartao);
+        telaFuncionarios.setVisible(alvo == telaFuncionarios);
+        conteudoCentralPadrao.setVisible(alvo == null);
     }
 
     private JPanel criarLogo() {
