@@ -4,9 +4,9 @@ import java.sql.SQLException;
 
 public class Conexao {
     // Altere as credenciais de acordo com a sua base de dados MySQL local
-    private static final String URL = "jdbc:mysql://localhost:3306/IntegradorArcade";
+       private static final String URL = "jdbc:mysql://localhost:3306/IntegradorArcade?useUnicode=true&characterEncoding=UTF-8";
     private static final String USER = "root";
-    private static final String PASSWORD = "sua_senha";
+    private static final String PASSWORD = "";
 
     public static Connection conectar() {
         try {

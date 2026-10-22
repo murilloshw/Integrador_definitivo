@@ -10,7 +10,18 @@ import java.awt.GridLayout;
 import java.awt.RenderingHints;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.sql.Connection;
+import java.sql.Date;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.text.ParseException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
+import java.util.regex.Pattern;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JDialog;
@@ -37,7 +48,20 @@ public class TelaClientes extends JPanel {
     private TableRowSorter<DefaultTableModel> sorter;
     private JTextField txtBuscar;
     private JLabel lblTotalClientes;
-    private int proximoId = 1;
+
+    // Formato de data usado na tela (dd/MM/aaaa). STRICT recusa datas inexistentes (ex.: 31/02/2000)
+    private static final DateTimeFormatter FORMATO_DATA = DateTimeFormatter
+            .ofPattern("dd/MM/uuuu")
+            .withResolverStyle(ResolverStyle.STRICT);
+
+    // -----------------------------------------------------------------
+    // CONEXÃO COM O BANCO
+    // Único ponto que depende da sua classe de conexão.
+    // Se o nome da sua classe/método for outro, troque só esta linha.
+    // -----------------------------------------------------------------
+    private Connection conectar() throws SQLException {
+        return Conexao.conectar();
+    }
 
     public TelaClientes() {
         setBackground(new Color(2, 12, 27)); // Fundo azul marinho escuro
@@ -108,7 +132,8 @@ public class TelaClientes extends JPanel {
                 if (texto.equals("Buscar por nome, CPF ou telefone...") || texto.trim().isEmpty()) {
                     sorter.setRowFilter(null);
                 } else {
-                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + texto));
+                    // Pattern.quote evita erro se o usuário digitar caracteres como ( ) + . *
+                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(texto)));
                 }
                 atualizarTotal();
             }
@@ -231,7 +256,7 @@ public class TelaClientes extends JPanel {
 
         painelCardTabela.add(scrollPane, BorderLayout.CENTER);
         add(painelCardTabela, BorderLayout.CENTER);
-        //oi
+
         // -----------------------------------------------------------------
         // 3. RODAPÉ (PAGINAÇÃO E TOTAL CORRIGIDOS)
         // -----------------------------------------------------------------
@@ -242,7 +267,6 @@ public class TelaClientes extends JPanel {
         lblTotalClientes = new JLabel();
         lblTotalClientes.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         lblTotalClientes.setForeground(new Color(148, 163, 184));
-        atualizarTotal();
 
         JPanel painelPaginacao = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         painelPaginacao.setOpaque(false);
@@ -251,16 +275,30 @@ public class TelaClientes extends JPanel {
         painelRodape.add(painelPaginacao, BorderLayout.EAST);
 
         add(painelRodape, BorderLayout.SOUTH);
+
+        // Carrega os clientes do banco (também atualiza o "Total: X clientes")
+        carregarClientes();
     }
 
-    /** Retorna o nome do cliente com o ID informado (ex.: "001") ou null se não existir. */
+    /** Retorna o nome do cliente com o ID informado (ex.: "001" ou "1") ou null se não existir. */
     public String buscarNomePorId(String id) {
+        long idProcurado;
+        try {
+            idProcurado = Long.parseLong(id.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
         for (int i = 0; i < modeloTabela.getRowCount(); i++) {
-            if (String.valueOf(modeloTabela.getValueAt(i, 0)).equals(id)) {
+            if (idDaLinha(i) == idProcurado) {
                 return String.valueOf(modeloTabela.getValueAt(i, 1));
             }
         }
         return null;
+    }
+
+    /** Recarrega a tabela a partir do banco. Pode ser chamado por outras telas. */
+    public void recarregar() {
+        carregarClientes();
     }
 
     private void atualizarTotal() {
@@ -268,6 +306,133 @@ public class TelaClientes extends JPanel {
         lblTotalClientes.setText("Total: " + count + " clientes");
     }
 
+    // -----------------------------------------------------------------
+    // ACESSO AO BANCO DE DADOS
+    // -----------------------------------------------------------------
+
+    /** SELECT de todos os clientes e preenchimento da tabela. */
+    private void carregarClientes() {
+        String sql = "SELECT ID_Cliente, Nome_Completo, CPF, Telefone, Data_Nascimento, Email "
+                + "FROM Clientes ORDER BY ID_Cliente";
+
+        modeloTabela.setRowCount(0);
+
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                Date data = rs.getDate("Data_Nascimento");
+                modeloTabela.addRow(new Object[] {
+                        String.format("%03d", rs.getLong("ID_Cliente")),
+                        rs.getString("Nome_Completo"),
+                        formatarCpf(rs.getLong("CPF")),
+                        formatarTelefone(rs.getLong("Telefone")),
+                        data != null ? data.toLocalDate().format(FORMATO_DATA) : "",
+                        rs.getString("Email")
+                });
+            }
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this,
+                    "Não foi possível carregar os clientes do banco de dados:\n" + ex.getMessage(),
+                    "Erro de banco de dados", JOptionPane.ERROR_MESSAGE);
+        }
+
+        atualizarTotal();
+    }
+
+    /** INSERT de um novo cliente. Retorna o ID gerado pelo banco (AUTO_INCREMENT). */
+    private long inserirCliente(String nome, long cpf, LocalDate nascimento, long telefone, String email)
+            throws SQLException {
+        String sql = "INSERT INTO Clientes (Nome_Completo, CPF, Data_Nascimento, Telefone, Email) "
+                + "VALUES (?, ?, ?, ?, ?)";
+
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+
+            ps.setString(1, nome);
+            ps.setLong(2, cpf);
+            ps.setDate(3, Date.valueOf(nascimento));
+            ps.setLong(4, telefone);
+            ps.setString(5, email);
+            ps.executeUpdate();
+
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                if (keys.next()) {
+                    return keys.getLong(1);
+                }
+            }
+            throw new SQLException("O banco não retornou o ID do cliente cadastrado.");
+        }
+    }
+
+    /** UPDATE de um cliente existente. */
+    private void atualizarCliente(long id, String nome, long cpf, LocalDate nascimento, long telefone, String email)
+            throws SQLException {
+        String sql = "UPDATE Clientes SET Nome_Completo = ?, CPF = ?, Data_Nascimento = ?, "
+                + "Telefone = ?, Email = ? WHERE ID_Cliente = ?";
+
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement(sql)) {
+
+            ps.setString(1, nome);
+            ps.setLong(2, cpf);
+            ps.setDate(3, Date.valueOf(nascimento));
+            ps.setLong(4, telefone);
+            ps.setString(5, email);
+            ps.setLong(6, id);
+            ps.executeUpdate();
+        }
+    }
+
+    /** Traduz o erro 1062 (valor duplicado) do MySQL para uma mensagem amigável. */
+    private String mensagemDeErro(SQLException ex) {
+        if (ex.getErrorCode() == 1062) {
+            String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
+            int pos = msg.indexOf("for key");
+            String chave = pos >= 0 ? msg.substring(pos) : msg;
+            if (chave.contains("cpf")) {
+                return "Já existe um cliente cadastrado com este CPF.";
+            }
+            if (chave.contains("telefone")) {
+                return "Já existe um cliente cadastrado com este telefone.";
+            }
+            if (chave.contains("email")) {
+                return "Já existe um cliente cadastrado com este e-mail.";
+            }
+            return "Já existe um cliente com algum desses dados (CPF, telefone ou e-mail).";
+        }
+        return "Erro ao salvar no banco de dados:\n" + ex.getMessage();
+    }
+
+    // -----------------------------------------------------------------
+    // CONVERSÕES (tela <-> banco)
+    // -----------------------------------------------------------------
+
+    /** Remove tudo que não for dígito: "123.456.789-09" -> "12345678909". */
+    private String apenasDigitos(String texto) {
+        return texto == null ? "" : texto.replaceAll("\\D", "");
+    }
+
+    /** 12345678909 -> "123.456.789-09" (completa com zeros à esquerda até 11 dígitos). */
+    private String formatarCpf(long cpf) {
+        String d = String.format("%011d", cpf);
+        return d.substring(0, 3) + "." + d.substring(3, 6) + "." + d.substring(6, 9) + "-" + d.substring(9);
+    }
+
+    /** 5548999998888 -> "+55 48 99999-8888". Se não tiver 13 dígitos, devolve o número puro. */
+    private String formatarTelefone(long telefone) {
+        String d = String.valueOf(telefone);
+        if (d.length() != 13) {
+            return d;
+        }
+        return "+" + d.substring(0, 2) + " " + d.substring(2, 4) + " " + d.substring(4, 9) + "-" + d.substring(9);
+    }
+
+    /** Lê o ID real (numérico) da linha do modelo: "003" -> 3. */
+    private long idDaLinha(int linhaModelo) {
+        return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
+    }
 
     // -----------------------------------------------------------------
     // 4. MODAL DE CADASTRO COM JFORMATTEDTEXTFIELD
@@ -325,28 +490,74 @@ public class TelaClientes extends JPanel {
         btnSalvar.setForeground(Color.WHITE);
         btnSalvar.setFocusPainted(false);
         btnSalvar.addActionListener(e -> {
-            if (txtNome.getText().trim().isEmpty() || txtCPF.getText().contains(" ")) {
-                JOptionPane.showMessageDialog(modal, "Por favor, preencha o Nome e o CPF corretamente.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+            // ---------- Validações (espelham as regras NOT NULL / tamanhos do banco) ----------
+            String nome = txtNome.getText().trim();
+            String email = txtEmail.getText().trim();
+            String cpfDigitos = apenasDigitos(txtCPF.getText());
+            String telDigitos = apenasDigitos(txtTelefone.getText());
+
+            if (nome.isEmpty()) {
+                aviso(modal, "Por favor, preencha o Nome.");
+                return;
+            }
+            if (nome.length() > 50) {
+                aviso(modal, "O nome pode ter no máximo 50 caracteres.");
+                return;
+            }
+            if (cpfDigitos.length() != 11) {
+                aviso(modal, "Por favor, preencha o CPF corretamente (11 dígitos).");
                 return;
             }
 
-            if (edicao) {
-                modeloTabela.setValueAt(txtNome.getText().trim(), linhaModelo, 1);
-                modeloTabela.setValueAt(txtCPF.getText(), linhaModelo, 2);
-                modeloTabela.setValueAt(txtTelefone.getText(), linhaModelo, 3);
-                modeloTabela.setValueAt(txtDataNasc.getText(), linhaModelo, 4);
-                modeloTabela.setValueAt(txtEmail.getText().trim(), linhaModelo, 5);
-            } else {
-                String idFormatado = String.format("%03d", proximoId++);
-                modeloTabela.addRow(new Object[] {
-                        idFormatado,
-                        txtNome.getText().trim(),
-                        txtCPF.getText(),
-                        txtTelefone.getText(),
-                        txtDataNasc.getText(),
-                        txtEmail.getText().trim()
-                });
+            LocalDate nascimento;
+            try {
+                nascimento = LocalDate.parse(txtDataNasc.getText(), FORMATO_DATA);
+            } catch (DateTimeParseException ex) {
+                aviso(modal, "Data de nascimento inválida. Use o formato dd/mm/aaaa.");
+                return;
+            }
+            if (nascimento.isAfter(LocalDate.now()) || nascimento.getYear() < 1900) {
+                aviso(modal, "Data de nascimento fora do intervalo permitido.");
+                return;
+            }
+
+            if (telDigitos.length() != 13) {
+                aviso(modal, "Por favor, preencha o telefone completo (+DD DDD XXXXX-XXXX).");
+                return;
+            }
+            if (email.isEmpty() || !email.contains("@") || email.length() > 50) {
+                aviso(modal, "Informe um e-mail válido (máximo de 50 caracteres).");
+                return;
+            }
+
+            long cpf = Long.parseLong(cpfDigitos);
+            long telefone = Long.parseLong(telDigitos);
+
+            // ---------- Grava no banco; só mexe na tabela se o banco aceitou ----------
+            try {
+                if (edicao) {
+                    atualizarCliente(idDaLinha(linhaModelo), nome, cpf, nascimento, telefone, email);
+
+                    modeloTabela.setValueAt(nome, linhaModelo, 1);
+                    modeloTabela.setValueAt(formatarCpf(cpf), linhaModelo, 2);
+                    modeloTabela.setValueAt(formatarTelefone(telefone), linhaModelo, 3);
+                    modeloTabela.setValueAt(nascimento.format(FORMATO_DATA), linhaModelo, 4);
+                    modeloTabela.setValueAt(email, linhaModelo, 5);
+                } else {
+                    long novoId = inserirCliente(nome, cpf, nascimento, telefone, email);
+
+                    modeloTabela.addRow(new Object[] {
+                            String.format("%03d", novoId),
+                            nome,
+                            formatarCpf(cpf),
+                            formatarTelefone(telefone),
+                            nascimento.format(FORMATO_DATA),
+                            email
+                    });
+                }
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(modal, mensagemDeErro(ex), "Erro", JOptionPane.ERROR_MESSAGE);
+                return; // mantém o modal aberto para o usuário corrigir
             }
 
             atualizarTotal();
@@ -362,6 +573,10 @@ public class TelaClientes extends JPanel {
         modal.add(painelForm, BorderLayout.CENTER);
         modal.add(painelBotoes, BorderLayout.SOUTH);
         modal.setVisible(true);
+    }
+
+    private void aviso(JDialog modal, String mensagem) {
+        JOptionPane.showMessageDialog(modal, mensagem, "Aviso", JOptionPane.WARNING_MESSAGE);
     }
 
     // Botão de lápis azul (ícone desenhado em código, sem depender de imagem/fonte)

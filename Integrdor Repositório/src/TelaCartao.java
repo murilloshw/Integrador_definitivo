@@ -10,11 +10,16 @@ import java.awt.GridLayout;
 import java.awt.RenderingHints;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.text.ParseException;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
-import javax.swing.JDialog;
 import javax.swing.JComboBox;
+import javax.swing.JDialog;
 import javax.swing.JFormattedTextField;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -37,9 +42,21 @@ public class TelaCartao extends JPanel {
     private TableRowSorter<DefaultTableModel> sorter;
     private JTextField txtBuscar;
     private JLabel lblTotalCartoes;
-    private int proximoId = 1;
 
     private final TelaClientes telaClientes;
+
+    // -----------------------------------------------------------------
+    // CONEXÃO COM O BANCO
+    // Único ponto que depende da sua classe de conexão.
+    // -----------------------------------------------------------------
+    private Connection conectar() throws SQLException {
+        Connection con = Conexao.conectar();
+        if (con == null) {
+            // Conexao.conectar() devolve null quando falha (e já imprime o motivo no terminal)
+            throw new SQLException("Não foi possível conectar ao MySQL. Verifique usuário, senha e se o servidor está ligado.");
+        }
+        return con;
+    }
 
     public TelaCartao(TelaClientes telaClientes) {
         this.telaClientes = telaClientes;
@@ -120,7 +137,7 @@ public class TelaCartao extends JPanel {
         painelBusca.add(lblLupa, BorderLayout.WEST);
         painelBusca.add(txtBuscar, BorderLayout.CENTER);
 
-        // Botão Novo Cliente
+        // Botão Novo Cartão
         JButton btnNovoCartao = new JButton("+ Novo Cartão") {
             @Override
             protected void paintComponent(Graphics g) {
@@ -234,7 +251,7 @@ public class TelaCartao extends JPanel {
 
         painelCardTabela.add(scrollPane, BorderLayout.CENTER);
         add(painelCardTabela, BorderLayout.CENTER);
-        //oi
+
         // -----------------------------------------------------------------
         // 3. RODAPÉ (PAGINAÇÃO E TOTAL CORRIGIDOS)
         // -----------------------------------------------------------------
@@ -245,7 +262,6 @@ public class TelaCartao extends JPanel {
         lblTotalCartoes = new JLabel();
         lblTotalCartoes.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         lblTotalCartoes.setForeground(new Color(148, 163, 184));
-        atualizarTotal();
 
         JPanel painelPaginacao = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         painelPaginacao.setOpaque(false);
@@ -254,6 +270,9 @@ public class TelaCartao extends JPanel {
         painelRodape.add(painelPaginacao, BorderLayout.EAST);
 
         add(painelRodape, BorderLayout.SOUTH);
+
+        // Carrega os cartões do banco (também atualiza o "Total: X cartões")
+        carregarCartoes();
     }
 
     /** Atualiza o nome do cliente em cada cartão (caso o cliente tenha sido editado). */
@@ -266,11 +285,115 @@ public class TelaCartao extends JPanel {
         }
     }
 
+    /** Recarrega a tabela a partir do banco. Pode ser chamado por outras telas. */
+    public void recarregar() {
+        carregarCartoes();
+    }
+
     private void atualizarTotal() {
         int count = tabela.getRowCount();
         lblTotalCartoes.setText("Total: " + count + " cartões");
     }
 
+    // -----------------------------------------------------------------
+    // ACESSO AO BANCO DE DADOS
+    // (nomes com acento ficam entre crases: `Cartões`, `ID_Cartão`, `Usuário`)
+    // -----------------------------------------------------------------
+
+    /** SELECT de todos os cartões (já com o nome do cliente via JOIN) e preenchimento da tabela. */
+    private void carregarCartoes() {
+        String sql = "SELECT c.`ID_Cartão` AS id_cartao, c.ID_Cliente AS id_cliente, "
+                + "cl.Nome_Completo AS nome_cliente, c.`Usuário` AS usuario, "
+                + "c.Creditos AS creditos, c.Pontos AS pontos, c.Ativo AS ativo "
+                + "FROM `Cartões` c "
+                + "JOIN Clientes cl ON cl.ID_Cliente = c.ID_Cliente "
+                + "ORDER BY c.`ID_Cartão`";
+
+        modeloTabela.setRowCount(0);
+
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement(sql);
+                ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                modeloTabela.addRow(new Object[] {
+                        String.format("%03d", rs.getLong("id_cartao")),
+                        String.format("%03d", rs.getLong("id_cliente")),
+                        rs.getString("nome_cliente"),
+                        rs.getString("usuario"),
+                        rs.getLong("creditos"),
+                        rs.getLong("pontos"),
+                        rs.getBoolean("ativo") ? "Ativo" : "Inativo"
+                });
+            }
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this,
+                    "Não foi possível carregar os cartões do banco de dados:\n" + ex.getMessage(),
+                    "Erro de banco de dados", JOptionPane.ERROR_MESSAGE);
+        }
+
+        atualizarTotal();
+    }
+
+    /** INSERT de um novo cartão. Retorna o ID gerado pelo banco (AUTO_INCREMENT). */
+    private long inserirCartao(long idCliente, String usuario, long credito, long pontos, boolean ativo)
+            throws SQLException {
+        String sql = "INSERT INTO `Cartões` (ID_Cliente, `Usuário`, Creditos, Pontos, Ativo) "
+                + "VALUES (?, ?, ?, ?, ?)";
+
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+
+            ps.setLong(1, idCliente);
+            ps.setString(2, usuario);
+            ps.setLong(3, credito);
+            ps.setLong(4, pontos);
+            ps.setBoolean(5, ativo);
+            ps.executeUpdate();
+
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                if (keys.next()) {
+                    return keys.getLong(1);
+                }
+            }
+            throw new SQLException("O banco não retornou o ID do cartão cadastrado.");
+        }
+    }
+
+    /** UPDATE de um cartão existente. */
+    private void atualizarCartao(long idCartao, long idCliente, String usuario, long credito, long pontos,
+            boolean ativo) throws SQLException {
+        String sql = "UPDATE `Cartões` SET ID_Cliente = ?, `Usuário` = ?, Creditos = ?, Pontos = ?, Ativo = ? "
+                + "WHERE `ID_Cartão` = ?";
+
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement(sql)) {
+
+            ps.setLong(1, idCliente);
+            ps.setString(2, usuario);
+            ps.setLong(3, credito);
+            ps.setLong(4, pontos);
+            ps.setBoolean(5, ativo);
+            ps.setLong(6, idCartao);
+            ps.executeUpdate();
+        }
+    }
+
+    /** Traduz erros comuns do MySQL para mensagens amigáveis. */
+    private String mensagemDeErro(SQLException ex) {
+        if (ex.getErrorCode() == 1062) { // valor duplicado (UNIQUE)
+            return "Este usuário já está em uso por outro cartão. Escolha outro nome de usuário.";
+        }
+        if (ex.getErrorCode() == 1452) { // chave estrangeira (cliente inexistente)
+            return "O cliente informado não existe no banco de dados.";
+        }
+        return "Erro ao salvar no banco de dados:\n" + ex.getMessage();
+    }
+
+    /** Lê o ID real (numérico) da linha do modelo: "003" -> 3. */
+    private long idDaLinha(int linhaModelo) {
+        return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
+    }
 
     // -----------------------------------------------------------------
     // 4. MODAL DE CADASTRO COM JFORMATTEDTEXTFIELD
@@ -373,24 +496,37 @@ public class TelaCartao extends JPanel {
                 return;
             }
 
-            if (edicao) {
-                modeloTabela.setValueAt(idCliente, linhaModelo, 1);
-                modeloTabela.setValueAt(nomeCliente, linhaModelo, 2);
-                modeloTabela.setValueAt(usuario, linhaModelo, 3);
-                modeloTabela.setValueAt(credito, linhaModelo, 4);
-                modeloTabela.setValueAt(pontos, linhaModelo, 5);
-                modeloTabela.setValueAt((String) cmbStatus.getSelectedItem(), linhaModelo, 6);
-            } else {
-                String idFormatado = String.format("%03d", proximoId++);
-                modeloTabela.addRow(new Object[] {
-                        idFormatado,
-                        idCliente,
-                        nomeCliente,
-                        usuario,
-                        credito,
-                        pontos,
-                        (String) cmbStatus.getSelectedItem()
-                });
+            long idClienteNum = Long.parseLong(idCliente.trim());
+            String status = (String) cmbStatus.getSelectedItem();
+            boolean ativo = "Ativo".equals(status);
+
+            // ---------- Grava no banco; só mexe na tabela se o banco aceitou ----------
+            try {
+                if (edicao) {
+                    atualizarCartao(idDaLinha(linhaModelo), idClienteNum, usuario, credito, pontos, ativo);
+
+                    modeloTabela.setValueAt(String.format("%03d", idClienteNum), linhaModelo, 1);
+                    modeloTabela.setValueAt(nomeCliente, linhaModelo, 2);
+                    modeloTabela.setValueAt(usuario, linhaModelo, 3);
+                    modeloTabela.setValueAt(credito, linhaModelo, 4);
+                    modeloTabela.setValueAt(pontos, linhaModelo, 5);
+                    modeloTabela.setValueAt(status, linhaModelo, 6);
+                } else {
+                    long novoId = inserirCartao(idClienteNum, usuario, credito, pontos, ativo);
+
+                    modeloTabela.addRow(new Object[] {
+                            String.format("%03d", novoId),
+                            String.format("%03d", idClienteNum),
+                            nomeCliente,
+                            usuario,
+                            credito,
+                            pontos,
+                            status
+                    });
+                }
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(modal, mensagemDeErro(ex), "Erro", JOptionPane.ERROR_MESSAGE);
+                return; // mantém o modal aberto para o usuário corrigir
             }
 
             atualizarTotal();
