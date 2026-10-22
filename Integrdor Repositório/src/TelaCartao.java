@@ -196,7 +196,7 @@ public class TelaCartao extends JPanel {
         painelCardTabela.setOpaque(false);
         painelCardTabela.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 
-        String[] colunas = { "ID Cartão ▾", "ID Cliente ▾", "Cliente ▾", "Usuário ▾", "Crédito ▾", "Pontos ▾", "Status ▾" };
+        String[] colunas = { "ID Cartão ", "ID Cliente ", "Cliente ", "Usuário ", "Crédito ", "Pontos ", "Status " };
 
         modeloTabela = new DefaultTableModel(colunas, 0) {
             @Override
