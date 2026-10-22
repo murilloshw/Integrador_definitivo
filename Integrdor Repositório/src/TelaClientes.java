@@ -177,7 +177,7 @@ public class TelaClientes extends JPanel {
         painelCardTabela.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 
         // As duas últimas colunas ficam escondidas na tabela; guardam os dados usados na edição
-        String[] colunas = { "ID ▾", "Nome ▾", "CPF ▾", "Telefone ▾", "Nascimento", "E-mail" };
+        String[] colunas = { "ID ", "Nome ", "CPF ", "Telefone ", "Nascimento", "E-mail" };
 
         modeloTabela = new DefaultTableModel(colunas, 0) {
             @Override
