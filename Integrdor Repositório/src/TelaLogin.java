@@ -1,4 +1,3 @@
-
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -263,7 +262,7 @@ public class TelaLogin extends JFrame {
 
             JOptionPane.showMessageDialog(
                     this,
-                    "Preencha o email e a senha.",
+                    "Preencha o usuário e a senha.",
                     "Atenção",
                     JOptionPane.WARNING_MESSAGE);
 
@@ -274,24 +273,43 @@ public class TelaLogin extends JFrame {
         // LOGIN
         // =====================================================
 
-        if (usuario.equals("admin")
-                &&
-                senhaDigitada.equals("1234")) {
+        // Não existe tabela separada de login: quem entra é um funcionário
+        // cadastrado (o "admin" é o Manager Master, fixo no sistema).
+        Funcionario funcionario =
+                Repositoriofuncionarios.autenticar(
+                        usuario,
+                        senhaDigitada);
 
-            App app = new App();
-
-            app.setVisible(true);
-
-            dispose();
-
-        } else {
+        if (funcionario == null) {
 
             JOptionPane.showMessageDialog(
                     this,
-                    "Email ou senha incorretos.",
+                    "Usuário ou senha incorretos.",
                     "Erro",
                     JOptionPane.ERROR_MESSAGE);
+
+            return;
         }
+
+        if (!funcionario.isAtivo()) {
+
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Este funcionário está bloqueado.\nProcure o Manager Master.",
+                    "Acesso bloqueado",
+                    JOptionPane.WARNING_MESSAGE);
+
+            return;
+        }
+
+        // Guarda quem entrou (usado para liberar as telas restritas)
+        Sessao.iniciar(funcionario);
+
+        App app = new App();
+
+        app.setVisible(true);
+
+        dispose();
     }
 
     // =========================================================
@@ -571,7 +589,7 @@ public class TelaLogin extends JFrame {
                             17));
 
             g2.drawString(
-                    "Email",
+                    "Usuário",
                     640,
                     408);
 
@@ -940,4 +958,3 @@ public class TelaLogin extends JFrame {
                 TelaLogin::new);
     }
 }
-
