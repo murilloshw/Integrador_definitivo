@@ -21,6 +21,7 @@ public class App extends JFrame {
 
     private TelaClientes telaClientes;
     private TelaCartao telaCartao;
+    private TelaMaquinas telaMaquinas;
     private TelaFuncionarios telaFuncionarios;
     private JPanel conteudoCentralPadrao;
 
@@ -78,6 +79,12 @@ public class App extends JFrame {
         telaCartao.setVisible(false);
         layeredPane.add(telaCartao, JLayeredPane.DEFAULT_LAYER);
 
+        // Instância da Tela de Máquinas (Inicia Oculta)
+        telaMaquinas = new TelaMaquinas();
+        telaMaquinas.setBounds(70, 0, larguraTela - 70, alturaTela);
+        telaMaquinas.setVisible(false);
+        layeredPane.add(telaMaquinas, JLayeredPane.DEFAULT_LAYER);
+
         // Instância da Tela de Funcionários (Inicia Oculta) - acesso só do Manager Master
         telaFuncionarios = new TelaFuncionarios();
         telaFuncionarios.setBounds(70, 0, larguraTela - 70, alturaTela);
@@ -130,6 +137,8 @@ public class App extends JFrame {
                 } else if (texto.equalsIgnoreCase("Cartões")) {
                     telaCartao.atualizarNomesClientes();
                     mostrarTela(telaCartao);
+                } else if (texto.equalsIgnoreCase("Máquinas")) {
+                    mostrarTela(telaMaquinas);
                 } else if (texto.equalsIgnoreCase("Funcionários")) {
                     // Só o Manager Master pode abrir o cadastro de funcionários
                     if (!Sessao.isManagerMaster()) {
@@ -166,6 +175,7 @@ public class App extends JFrame {
                 conteudoCentralPadrao.setBounds(70, 0, w - 70, h);
                 telaClientes.setBounds(70, 0, w - 70, h);
                 telaCartao.setBounds(70, 0, w - 70, h);
+                telaMaquinas.setBounds(70, 0, w - 70, h);
                 telaFuncionarios.setBounds(70, 0, w - 70, h);
             }
         });
@@ -175,6 +185,7 @@ public class App extends JFrame {
     private void mostrarTela(JPanel alvo) {
         telaClientes.setVisible(alvo == telaClientes);
         telaCartao.setVisible(alvo == telaCartao);
+        telaMaquinas.setVisible(alvo == telaMaquinas);
         telaFuncionarios.setVisible(alvo == telaFuncionarios);
         conteudoCentralPadrao.setVisible(alvo == null);
     }
