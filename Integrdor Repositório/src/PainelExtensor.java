@@ -136,4 +136,5 @@ public class PainelExtensor extends JPanel {
         System.err.println("Imagem não encontrada: /images/" + nomeImagem);
         return new ImageIcon();
     }
+    
 }
