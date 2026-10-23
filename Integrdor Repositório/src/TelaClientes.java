@@ -313,7 +313,7 @@ public class TelaClientes extends JPanel {
     /** SELECT de todos os clientes e preenchimento da tabela. */
     private void carregarClientes() {
         String sql = "SELECT ID_Cliente, Nome_Completo, CPF, Telefone, Data_Nascimento, Email "
-                + "FROM Clientes ORDER BY ID_Cliente";
+                + "FROM clientes ORDER BY ID_Cliente";
 
         modeloTabela.setRowCount(0);
 
@@ -344,7 +344,7 @@ public class TelaClientes extends JPanel {
     /** INSERT de um novo cliente. Retorna o ID gerado pelo banco (AUTO_INCREMENT). */
     private long inserirCliente(String nome, long cpf, LocalDate nascimento, long telefone, String email)
             throws SQLException {
-        String sql = "INSERT INTO Clientes (Nome_Completo, CPF, Data_Nascimento, Telefone, Email) "
+        String sql = "INSERT INTO clientes (Nome_Completo, CPF, Data_Nascimento, Telefone, Email) "
                 + "VALUES (?, ?, ?, ?, ?)";
 
         try (Connection con = conectar();
@@ -369,7 +369,7 @@ public class TelaClientes extends JPanel {
     /** UPDATE de um cliente existente. */
     private void atualizarCliente(long id, String nome, long cpf, LocalDate nascimento, long telefone, String email)
             throws SQLException {
-        String sql = "UPDATE Clientes SET Nome_Completo = ?, CPF = ?, Data_Nascimento = ?, "
+        String sql = "UPDATE clientes SET Nome_Completo = ?, CPF = ?, Data_Nascimento = ?, "
                 + "Telefone = ?, Email = ? WHERE ID_Cliente = ?";
 
         try (Connection con = conectar();

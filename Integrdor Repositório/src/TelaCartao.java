@@ -305,8 +305,8 @@ public class TelaCartao extends JPanel {
         String sql = "SELECT c.`ID_Cartão` AS id_cartao, c.ID_Cliente AS id_cliente, "
                 + "cl.Nome_Completo AS nome_cliente, c.`Usuário` AS usuario, "
                 + "c.Creditos AS creditos, c.Pontos AS pontos, c.Ativo AS ativo "
-                + "FROM `Cartões` c "
-                + "JOIN Clientes cl ON cl.ID_Cliente = c.ID_Cliente "
+                + "FROM `cartões` c "
+                + "JOIN clientes cl ON cl.ID_Cliente = c.ID_Cliente "
                 + "ORDER BY c.`ID_Cartão`";
 
         modeloTabela.setRowCount(0);
@@ -338,7 +338,7 @@ public class TelaCartao extends JPanel {
     /** INSERT de um novo cartão. Retorna o ID gerado pelo banco (AUTO_INCREMENT). */
     private long inserirCartao(long idCliente, String usuario, long credito, long pontos, boolean ativo)
             throws SQLException {
-        String sql = "INSERT INTO `Cartões` (ID_Cliente, `Usuário`, Creditos, Pontos, Ativo) "
+        String sql = "INSERT INTO `cartões` (ID_Cliente, `Usuário`, Creditos, Pontos, Ativo) "
                 + "VALUES (?, ?, ?, ?, ?)";
 
         try (Connection con = conectar();
@@ -363,7 +363,7 @@ public class TelaCartao extends JPanel {
     /** UPDATE de um cartão existente. */
     private void atualizarCartao(long idCartao, long idCliente, String usuario, long credito, long pontos,
             boolean ativo) throws SQLException {
-        String sql = "UPDATE `Cartões` SET ID_Cliente = ?, `Usuário` = ?, Creditos = ?, Pontos = ?, Ativo = ? "
+        String sql = "UPDATE `cartões` SET ID_Cliente = ?, `Usuário` = ?, Creditos = ?, Pontos = ?, Ativo = ? "
                 + "WHERE `ID_Cartão` = ?";
 
         try (Connection con = conectar();
