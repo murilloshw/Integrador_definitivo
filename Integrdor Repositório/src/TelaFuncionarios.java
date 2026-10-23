@@ -120,7 +120,7 @@ public class TelaFuncionarios extends JPanel {
                 atualizarTotal();
             }
         });
-
+//a
         painelBusca.add(lblLupa, BorderLayout.WEST);
         painelBusca.add(txtBuscar, BorderLayout.CENTER);
 
