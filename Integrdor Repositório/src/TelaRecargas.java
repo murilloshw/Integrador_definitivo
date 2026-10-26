@@ -1,122 +1,242 @@
-import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.DefaultTableModel;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.math.BigDecimal;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.regex.Pattern;
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
+import javax.swing.RowFilter;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
 
 public class TelaRecargas extends JPanel {
 
+    private static final String PLACEHOLDER_BUSCA = "Buscar por ID, cartão, funcionário ou forma de pagamento...";
+
     private JTable tabelaRecargas;
     private DefaultTableModel modeloTabela;
+    private TableRowSorter<DefaultTableModel> sorter;
     private JTextField txtBuscar;
     private JLabel lblTotal;
 
+    private Connection conectar() throws SQLException {
+        Connection con = Conexao.conectar();
+        if (con == null) {
+            throw new SQLException("Não foi possível conectar ao banco de dados.");
+        }
+        return con;
+    }
+
     public TelaRecargas() {
-        setLayout(null);
-        setBackground(new Color(11, 19, 41)); // Fundo padrão escuro do sistema
-        setBounds(70, 0, 1210, 720); // Ajuste conforme o painel principal do seu layout
+        setBackground(new Color(2, 12, 27));
+        setLayout(new BorderLayout(15, 12));
+        setBorder(BorderFactory.createEmptyBorder(20, 25, 15, 25));
 
-        // --- TÍTULO DA PÁGINA ---
+        // --- TOPO: Título, Busca e Botão ---
+        JPanel painelTopoGeral = new JPanel(new BorderLayout(0, 15));
+        painelTopoGeral.setOpaque(false);
+
         JLabel lblTitulo = new JLabel("Recargas");
+        lblTitulo.setFont(new Font("Segoe UI", Font.BOLD, 22));
         lblTitulo.setForeground(Color.WHITE);
-        lblTitulo.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        lblTitulo.setBounds(30, 25, 200, 30);
-        add(lblTitulo);
 
-        // --- CAMPO DE BUSCA ---
-        txtBuscar = new JTextField();
-        txtBuscar.setBounds(30, 75, 280, 35);
-        txtBuscar.setBackground(new Color(18, 30, 59));
-        txtBuscar.setForeground(Color.WHITE);
-        txtBuscar.setCaretColor(Color.WHITE);
-        txtBuscar.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        txtBuscar.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(40, 60, 100)),
-            BorderFactory.createEmptyBorder(5, 10, 5, 10)
-        ));
-        txtBuscar.setToolTipText("Buscar por ID, Cartão, Funcionário ou Forma de Pagamento...");
-        add(txtBuscar);
+        JPanel painelAcoes = new JPanel(new BorderLayout(15, 0));
+        painelAcoes.setOpaque(false);
 
-        // --- BOTÃO NOVA RECARGA ---
-        JButton btnNovaRecarga = new JButton("+ Nova Recarga");
-        btnNovaRecarga.setBounds(1050, 75, 130, 35);
-        btnNovaRecarga.setBackground(new Color(14, 116, 244));
-        btnNovaRecarga.setForeground(Color.WHITE);
+        // Campo de Busca
+        JPanel painelBusca = new JPanel(new BorderLayout(8, 0)) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(13, 27, 46));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.setColor(new Color(30, 48, 80));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+                g2.dispose();
+            }
+        };
+        painelBusca.setOpaque(false);
+        painelBusca.setPreferredSize(new Dimension(400, 38));
+        painelBusca.setBorder(BorderFactory.createEmptyBorder(5, 12, 5, 12));
+
+        JLabel lblLupa = new JLabel("🔍");
+        lblLupa.setForeground(new Color(148, 163, 184));
+
+        txtBuscar = new JTextField(PLACEHOLDER_BUSCA);
+        txtBuscar.setOpaque(false);
+        txtBuscar.setForeground(new Color(100, 116, 139));
+        txtBuscar.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        txtBuscar.setBorder(null);
+
+        txtBuscar.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusGained(java.awt.event.FocusEvent evt) {
+                if (txtBuscar.getText().equals(PLACEHOLDER_BUSCA)) {
+                    txtBuscar.setText("");
+                    txtBuscar.setForeground(Color.WHITE);
+                }
+            }
+
+            @Override
+            public void focusLost(java.awt.event.FocusEvent evt) {
+                if (txtBuscar.getText().isEmpty()) {
+                    txtBuscar.setForeground(new Color(100, 116, 139));
+                    txtBuscar.setText(PLACEHOLDER_BUSCA);
+                }
+            }
+        });
+
+        txtBuscar.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyReleased(KeyEvent e) {
+                String texto = txtBuscar.getText();
+                if (texto.equals(PLACEHOLDER_BUSCA) || texto.trim().isEmpty()) {
+                    sorter.setRowFilter(null);
+                } else {
+                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(texto.trim())));
+                }
+                atualizarTotal();
+            }
+        });
+
+        painelBusca.add(lblLupa, BorderLayout.WEST);
+        painelBusca.add(txtBuscar, BorderLayout.CENTER);
+
+        // Botão Nova Recarga
+        JButton btnNovaRecarga = new JButton("+ Nova Recarga") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(14, 116, 233));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        btnNovaRecarga.setPreferredSize(new Dimension(150, 38));
         btnNovaRecarga.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btnNovaRecarga.setForeground(Color.WHITE);
         btnNovaRecarga.setFocusPainted(false);
-        btnNovaRecarga.setBorder(null);
+        btnNovaRecarga.setContentAreaFilled(false);
+        btnNovaRecarga.setBorderPainted(false);
         btnNovaRecarga.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnNovaRecarga.addActionListener(e -> abrirModalNovaRecarga());
-        add(btnNovaRecarga);
 
-        // --- TABELA DE RECARGAS ---
+        painelAcoes.add(painelBusca, BorderLayout.WEST);
+        painelAcoes.add(btnNovaRecarga, BorderLayout.EAST);
+
+        painelTopoGeral.add(lblTitulo, BorderLayout.NORTH);
+        painelTopoGeral.add(painelAcoes, BorderLayout.CENTER);
+        add(painelTopoGeral, BorderLayout.NORTH);
+
+        // --- TABELA ---
+        JPanel painelCardTabela = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(10, 22, 40));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                g2.setColor(new Color(23, 42, 69));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
+                g2.dispose();
+            }
+        };
+        painelCardTabela.setOpaque(false);
+        painelCardTabela.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+
         String[] colunas = {"ID Recarga", "ID Cartão", "ID Funcionário", "Valor", "Forma de Pagamento", "Data e Hora"};
         modeloTabela = new DefaultTableModel(colunas, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return false; // Tabela somente leitura
+                return false;
             }
         };
 
         tabelaRecargas = new JTable(modeloTabela);
-        tabelaRecargas.setBackground(new Color(14, 24, 48));
-        tabelaRecargas.setForeground(Color.WHITE);
-        tabelaRecargas.setGridColor(new Color(30, 50, 85));
-        tabelaRecargas.setRowHeight(35);
-        tabelaRecargas.getTableHeader().setBackground(new Color(18, 30, 59));
-        tabelaRecargas.getTableHeader().setForeground(Color.WHITE);
-        tabelaRecargas.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
-        tabelaRecargas.setSelectionBackground(new Color(24, 75, 150));
-        tabelaRecargas.setSelectionForeground(Color.WHITE);
+        tabelaRecargas.setBackground(new Color(10, 22, 40));
+        tabelaRecargas.setForeground(new Color(226, 232, 240));
+        tabelaRecargas.setGridColor(new Color(18, 35, 60));
+        tabelaRecargas.setRowHeight(42);
+        tabelaRecargas.setFont(new Font("Segoe UI", Font.PLAIN, 13));
 
-        // Centralizar dados da tabela
+        tabelaRecargas.getTableHeader().setBackground(new Color(10, 22, 40));
+        tabelaRecargas.getTableHeader().setForeground(new Color(148, 163, 184));
+        tabelaRecargas.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
+        tabelaRecargas.getTableHeader().setPreferredSize(new Dimension(0, 40));
+        tabelaRecargas.getTableHeader().setReorderingAllowed(false);
+
+        sorter = new TableRowSorter<>(modeloTabela);
+        tabelaRecargas.setRowSorter(sorter);
+
         DefaultTableCellRenderer centralizado = new DefaultTableCellRenderer();
         centralizado.setHorizontalAlignment(SwingConstants.CENTER);
+        centralizado.setBackground(new Color(10, 22, 40));
+        centralizado.setForeground(new Color(186, 230, 253));
+
         for (int i = 0; i < colunas.length; i++) {
             tabelaRecargas.getColumnModel().getColumn(i).setCellRenderer(centralizado);
         }
 
         JScrollPane scrollPane = new JScrollPane(tabelaRecargas);
-        scrollPane.setBounds(30, 130, 1150, 520);
-        scrollPane.getViewport().setBackground(new Color(11, 19, 41));
-        scrollPane.setBorder(BorderFactory.createLineBorder(new Color(40, 60, 100)));
-        add(scrollPane);
+        scrollPane.setOpaque(false);
+        scrollPane.getViewport().setOpaque(false);
+        scrollPane.setBorder(null);
 
-        // --- RODAPÉ COM TOTAL ---
-        lblTotal = new JLabel("Total: 0 recargas");
-        lblTotal.setForeground(new Color(180, 190, 210));
+        painelCardTabela.add(scrollPane, BorderLayout.CENTER);
+        add(painelCardTabela, BorderLayout.CENTER);
+
+        // --- RODAPÉ ---
+        JPanel painelRodape = new JPanel(new BorderLayout());
+        painelRodape.setOpaque(false);
+        painelRodape.setPreferredSize(new Dimension(0, 35));
+
+        lblTotal = new JLabel();
         lblTotal.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        lblTotal.setBounds(30, 665, 200, 25);
-        add(lblTotal);
+        lblTotal.setForeground(new Color(148, 163, 184));
+        painelRodape.add(lblTotal, BorderLayout.WEST);
 
-        // Carregar dados iniciais
+        add(painelRodape, BorderLayout.SOUTH);
+
         carregarDadosRecargas();
     }
 
-    /**
-     * Carrega os dados do banco para preencher a tabela.
-     * Insira aqui a chamada para a sua classe de conexão (ex: ConexaoBD.getConexao()).
-     */
     public void carregarDadosRecargas() {
         modeloTabela.setRowCount(0);
-        
         String sql = "SELECT ID_Recarga, ID_Cartão, ID_Funcionário, Valor, Forma_Pagamento, Data_Hora FROM recargas ORDER BY Data_Hora DESC";
-        
-        // TODO: Substitua a linha abaixo pelo método de conexão do seu projeto
-        // Exemplo: try (Connection conn = ConexaoBD.getConexao();
-        try (Connection conn = /* INSIRA SUA CONEXAO AQUI */ null;
-             PreparedStatement stmt = conn != null ? conn.prepareStatement(sql) : null;
-             ResultSet rs = stmt != null ? stmt.executeQuery() : null) {
 
-            if (conn == null) {
-                // Modo de exemplo visual caso a conexão venha nula nos seus testes iniciais
-                return;
-            }
+        try (Connection conn = conectar();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
 
-            int total = 0;
             while (rs.next()) {
                 long idRecarga = rs.getLong("ID_Recarga");
                 long idCartao = rs.getLong("ID_Cartão");
@@ -125,30 +245,40 @@ public class TelaRecargas extends JPanel {
                 String formaPgto = rs.getString("Forma_Pagamento");
                 Timestamp dataHora = rs.getTimestamp("Data_Hora");
 
-                String valorFormatado = String.format(Locale.US, "R$ %.2f", valor);
+                String valorFormatado = String.format(Locale.US, "R$ ", valor);
                 String dataFormatada = dataHora != null ? dataHora.toLocalDateTime().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")) : "";
 
                 modeloTabela.addRow(new Object[]{
-                    idRecarga, idCartao, idFuncionario, valorFormatado, formaPgto, dataFormatada
+                    String.format("%03d", idRecarga),
+                    String.format("%03d", idCartao),
+                    String.format("%03d", idFuncionario),
+                    valorFormatado,
+                    formaPgto,
+                    dataFormatada
                 });
-                total++;
             }
-            lblTotal.setText("Total: " + total + " recargas");
 
-        } catch (Exception e) {
-            System.err.println("Erro ao carregar recargas: " + e.getMessage());
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this,
+                    "Não foi possível carregar as recargas do banco de dados:\n" + e.getMessage(),
+                    "Erro de banco de dados", JOptionPane.ERROR_MESSAGE);
         }
+
+        atualizarTotal();
     }
 
-    /**
-     * Abre a janela modal (JDialog) estilizada para cadastrar uma nova recarga.
-     */
+    private void atualizarTotal() {
+        int count = tabelaRecargas.getRowCount();
+        lblTotal.setText("Total: " + count + (count == 1 ? " recarga" : " recargas"));
+    }
+
     private void abrirModalNovaRecarga() {
-        JDialog modal = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Nova Recarga", true);
+        java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
+        JDialog modal = new JDialog(parentWindow, "Nova Recarga", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
         modal.setSize(420, 380);
-        modal.setLocationRelativeTo(this);
+        modal.setLocationRelativeTo(parentWindow);
         modal.setLayout(null);
-        modal.getContentPane().setBackground(new Color(18, 30, 59));
+        modal.getContentPane().setBackground(new Color(10, 22, 40));
 
         JLabel lblTitle = new JLabel("Registrar Nova Recarga");
         lblTitle.setForeground(Color.WHITE);
@@ -156,75 +286,57 @@ public class TelaRecargas extends JPanel {
         lblTitle.setBounds(30, 20, 300, 25);
         modal.add(lblTitle);
 
-        // ID Cartão
         JLabel lblCartao = new JLabel("ID do Cartão:");
-        lblCartao.setForeground(new Color(180, 190, 210));
-        lblCartao.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        lblCartao.setForeground(new Color(226, 232, 240));
+        lblCartao.setFont(new Font("Segoe UI", Font.BOLD, 12));
         lblCartao.setBounds(30, 65, 150, 20);
         modal.add(lblCartao);
 
-        JTextField txtCartao = new JTextField();
+        JTextField txtCartao = criarCampoTexto();
         txtCartao.setBounds(30, 88, 340, 30);
-        txtCartao.setBackground(new Color(11, 19, 41));
-        txtCartao.setForeground(Color.WHITE);
-        txtCartao.setCaretColor(Color.WHITE);
-        txtCartao.setBorder(BorderFactory.createLineBorder(new Color(40, 60, 100)));
         modal.add(txtCartao);
 
-        // ID Funcionário
         JLabel lblFunc = new JLabel("ID do Funcionário:");
-        lblFunc.setForeground(new Color(180, 190, 210));
-        lblFunc.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        lblFunc.setForeground(new Color(226, 232, 240));
+        lblFunc.setFont(new Font("Segoe UI", Font.BOLD, 12));
         lblFunc.setBounds(30, 125, 150, 20);
         modal.add(lblFunc);
 
-        JTextField txtFunc = new JTextField();
+        JTextField txtFunc = criarCampoTexto();
         txtFunc.setBounds(30, 148, 340, 30);
-        txtFunc.setBackground(new Color(11, 19, 41));
-        txtFunc.setForeground(Color.WHITE);
-        txtFunc.setCaretColor(Color.WHITE);
-        txtFunc.setBorder(BorderFactory.createLineBorder(new Color(40, 60, 100)));
         modal.add(txtFunc);
 
-        // Valor
         JLabel lblValor = new JLabel("Valor (R$):");
-        lblValor.setForeground(new Color(180, 190, 210));
-        lblValor.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        lblValor.setForeground(new Color(226, 232, 240));
+        lblValor.setFont(new Font("Segoe UI", Font.BOLD, 12));
         lblValor.setBounds(30, 185, 150, 20);
         modal.add(lblValor);
 
-        JTextField txtValor = new JTextField();
+        JTextField txtValor = criarCampoTexto();
         txtValor.setBounds(30, 208, 160, 30);
-        txtValor.setBackground(new Color(11, 19, 41));
-        txtValor.setForeground(Color.WHITE);
-        txtValor.setCaretColor(Color.WHITE);
-        txtValor.setBorder(BorderFactory.createLineBorder(new Color(40, 60, 100)));
         modal.add(txtValor);
 
-        // Forma de Pagamento
         JLabel lblPgto = new JLabel("Forma de Pagamento:");
-        lblPgto.setForeground(new Color(180, 190, 210));
-        lblPgto.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        lblPgto.setForeground(new Color(226, 232, 240));
+        lblPgto.setFont(new Font("Segoe UI", Font.BOLD, 12));
         lblPgto.setBounds(205, 185, 165, 20);
         modal.add(lblPgto);
 
         String[] formas = {"Dinheiro", "Pix", "Cartão de Crédito", "Cartão de Débito"};
         JComboBox<String> cmbPgto = new JComboBox<>(formas);
         cmbPgto.setBounds(205, 208, 165, 30);
-        cmbPgto.setBackground(new Color(11, 19, 41));
+        cmbPgto.setBackground(new Color(2, 12, 27));
         cmbPgto.setForeground(Color.WHITE);
         modal.add(cmbPgto);
 
-        // Botão Salvar
         JButton btnSalvar = new JButton("Salvar Recarga");
         btnSalvar.setBounds(230, 275, 140, 35);
-        btnSalvar.setBackground(new Color(14, 116, 244));
+        btnSalvar.setBackground(new Color(14, 116, 233));
         btnSalvar.setForeground(Color.WHITE);
         btnSalvar.setFont(new Font("Segoe UI", Font.BOLD, 13));
         btnSalvar.setFocusPainted(false);
-        btnSalvar.setBorder(null);
         btnSalvar.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        
+
         btnSalvar.addActionListener(e -> {
             try {
                 long idCartao = Long.parseLong(txtCartao.getText().trim());
@@ -237,12 +349,10 @@ public class TelaRecargas extends JPanel {
                     return;
                 }
 
-                // Chamada para salvar utilizando o seu método de conexão
                 salvarRecargaNoBanco(idCartao, idFunc, valor, formaPgto);
-                
                 JOptionPane.showMessageDialog(modal, "Recarga cadastrada com sucesso!", "Sucesso", JOptionPane.INFORMATION_MESSAGE);
                 modal.dispose();
-                carregarDadosRecargas(); // Atualiza a tabela principal
+                carregarDadosRecargas();
 
             } catch (NumberFormatException ex) {
                 JOptionPane.showMessageDialog(modal, "Por favor, insira valores numéricos válidos para IDs e Valor.", "Erro de Validação", JOptionPane.ERROR_MESSAGE);
@@ -253,31 +363,32 @@ public class TelaRecargas extends JPanel {
         modal.setVisible(true);
     }
 
-    /**
-     * Insere a recarga utilizando a sua classe de conexão.
-     */
     private void salvarRecargaNoBanco(long idCartao, long idFuncionario, double valor, String formaPagamento) {
         String sql = "INSERT INTO recargas (ID_Cartão, ID_Funcionário, Valor, Forma_Pagamento) VALUES (?, ?, ?, ?)";
-        
-        // TODO: Substitua a linha abaixo pelo método de conexão do seu projeto
-        // Exemplo: try (Connection conn = ConexaoBD.getConexao();
-        try (Connection conn = Conexao.conectar();
-             PreparedStatement stmt = conn != null ? conn.prepareStatement(sql) : null) {
-            
-            if (conn == null) {
-                JOptionPane.showMessageDialog(this, "Erro: Conexão com o banco não configurada no método salvarRecargaNoBanco.", "Erro", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-            
+
+        try (Connection conn = conectar();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
             stmt.setLong(1, idCartao);
             stmt.setLong(2, idFuncionario);
             stmt.setBigDecimal(3, BigDecimal.valueOf(valor));
             stmt.setString(4, formaPagamento);
-            
             stmt.executeUpdate();
-            
-        } catch (Exception e) {
+
+        } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Erro ao salvar no banco de dados: " + e.getMessage(), "Erro SQL", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private JTextField criarCampoTexto() {
+        JTextField txt = new JTextField();
+        txt.setBackground(new Color(2, 12, 27));
+        txt.setForeground(Color.WHITE);
+        txt.setCaretColor(Color.WHITE);
+        txt.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        txt.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(30, 48, 80), 1),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+        return txt;
     }
 }
