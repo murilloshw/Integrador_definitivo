@@ -11,8 +11,10 @@ import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.LinearGradientPaint;
 import java.awt.RenderingHints;
 import java.awt.Component;
+import java.awt.geom.Point2D;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.KeyAdapter;
@@ -30,6 +32,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import javax.swing.BorderFactory;
@@ -46,6 +50,8 @@ import javax.swing.JTextField;
 import javax.swing.RowFilter;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
+import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -59,6 +65,10 @@ import javax.swing.table.TableRowSorter;
  *      Regra: 1 real = 5 créditos. Ao salvar, a recarga é gravada na tabela
  *      `recargas` E os créditos são somados ao cartão (`cartões`.Creditos),
  *      tudo na mesma transação (ou grava as duas coisas, ou nenhuma).
+ *
+ *  Carregamento: as consultas rodam em SEGUNDO PLANO (SwingWorker) e, enquanto
+ *  isso, a tabela mostra um "ghost loading" (linhas fantasma com brilho).
+ *  A tela abre na hora e a interface nunca trava esperando o banco.
  *
  *  - Formas de Pagamento (só o Manager Master enxerga): cadastro das formas
  *      aceitas nas recargas. Ficam salvas na tabela `formas_pagamento`,
@@ -92,6 +102,9 @@ public class TelaRecargas extends JPanel {
             + "Ativo BOOLEAN NOT NULL DEFAULT TRUE)";
     private static boolean tabelaFormasPronta = false;
 
+    // O ghost fica visível pelo menos este tempo, para não "piscar" quando o banco responde rápido
+    private static final int GHOST_MIN_MS = 350;
+
     // ---------------------------------------------------------------
     // COMPONENTES
     // ---------------------------------------------------------------
@@ -110,6 +123,19 @@ public class TelaRecargas extends JPanel {
     private TableRowSorter<DefaultTableModel> sorterFormas;
 
     private JLabel lblTotal;
+
+    // ghost loading
+    private JPanel cardTabelaRecargas;
+    private JPanel cardTabelaFormas;
+    private GhostPanel ghostRecargas;
+    private GhostPanel ghostFormas;
+    private boolean carregandoRecargas = false;
+    private boolean carregandoFormas = false;
+    private int cargaRecargasId = 0; // descarta respostas antigas se o usuário recarregar várias vezes
+    private int cargaFormasId = 0;
+
+    /** Formas ativas da última carga (null = ainda não carregou). Deixa o modal abrir instantâneo. */
+    private List<String> formasAtivasCache = null;
 
     /** Erro de regra de negócio (mensagem já pronta para mostrar ao usuário). */
     private static class RecargaException extends Exception {
@@ -176,13 +202,10 @@ public class TelaRecargas extends JPanel {
     // API PÚBLICA (chamada pelo App ao clicar em "Recargas")
     // ---------------------------------------------------------------
 
-    /** Atualiza as permissões e recarrega os dados do banco. */
+    /** Atualiza as permissões e recarrega os dados do banco (em segundo plano, com ghost loading). */
     public void carregarDadosRecargas() {
         atualizarPermissoes();
-        carregarRecargas();
-        if (Sessao.isManagerMaster()) {
-            carregarFormas();
-        }
+        carregar(true, Sessao.isManagerMaster());
     }
 
     // ---------------------------------------------------------------
@@ -222,9 +245,17 @@ public class TelaRecargas extends JPanel {
 
     private void atualizarTotal() {
         if (abaFormasAtiva) {
+            if (carregandoFormas) {
+                lblTotal.setText("Carregando...");
+                return;
+            }
             int n = tabelaFormas.getRowCount();
             lblTotal.setText("Total: " + n + (n == 1 ? " forma de pagamento" : " formas de pagamento"));
         } else {
+            if (carregandoRecargas) {
+                lblTotal.setText("Carregando...");
+                return;
+            }
             int n = tabelaRecargas.getRowCount();
             lblTotal.setText("Total: " + n + (n == 1 ? " recarga" : " recargas"));
         }
@@ -261,23 +292,153 @@ public class TelaRecargas extends JPanel {
         tabelaRecargas.setRowSorter(sorterRecargas);
 
         painel.add(acoes, BorderLayout.NORTH);
-        painel.add(criarCardTabela(tabelaRecargas), BorderLayout.CENTER);
+        ghostRecargas = new GhostPanel(7);
+        cardTabelaRecargas = criarCardTabela(tabelaRecargas, ghostRecargas);
+        painel.add(cardTabelaRecargas, BorderLayout.CENTER);
         return painel;
     }
 
-    /** SELECT de todas as recargas e preenchimento da tabela. */
-    private void carregarRecargas() {
+    // ---------------------------------------------------------------
+    // CARREGAMENTO EM SEGUNDO PLANO (com ghost loading)
+    // ---------------------------------------------------------------
+
+    /** Resultado de uma carga: linhas já prontas para as tabelas + o erro de cada parte (se houver). */
+    private static class DadosCarga {
+        List<Object[]> recargas;
+        List<Object[]> formas;
+        List<String> formasAtivas; // null = não conseguiu carregar
+        String erroRecargas;
+        String erroFormas;
+    }
+
+    /**
+     * Mostra o ghost nas tabelas pedidas, busca os dados fora da thread da interface
+     * e, quando chegam, troca o ghost pela tabela.
+     */
+    private void carregar(boolean recargas, boolean formas) {
+        final long inicio = System.currentTimeMillis();
+        final int idRecargas = recargas ? ++cargaRecargasId : cargaRecargasId;
+        final int idFormas = formas ? ++cargaFormasId : cargaFormasId;
+
+        if (recargas) {
+            carregandoRecargas = true;
+            mostrarGhost(cardTabelaRecargas, ghostRecargas, true);
+        }
+        if (formas) {
+            carregandoFormas = true;
+            mostrarGhost(cardTabelaFormas, ghostFormas, true);
+        }
+        atualizarTotal();
+
+        async(() -> buscarDados(recargas, formas),
+                dados -> {
+                    Runnable aplicar = () -> aplicarDados(dados,
+                            recargas && idRecargas == cargaRecargasId,
+                            formas && idFormas == cargaFormasId);
+                    long resto = GHOST_MIN_MS - (System.currentTimeMillis() - inicio);
+                    if (resto > 0) {
+                        Timer t = new Timer((int) resto, ev -> aplicar.run());
+                        t.setRepeats(false);
+                        t.start();
+                    } else {
+                        aplicar.run();
+                    }
+                },
+                ex -> {
+                    // não conseguiu nem conectar: tira o ghost e avisa
+                    if (recargas && idRecargas == cargaRecargasId) {
+                        carregandoRecargas = false;
+                        mostrarGhost(cardTabelaRecargas, ghostRecargas, false);
+                    }
+                    if (formas && idFormas == cargaFormasId) {
+                        carregandoFormas = false;
+                        mostrarGhost(cardTabelaFormas, ghostFormas, false);
+                    }
+                    atualizarTotal();
+                    erro(this, "Não foi possível conectar ao banco de dados:\n" + ex.getMessage());
+                });
+    }
+
+    private void aplicarDados(DadosCarga d, boolean aplicarRecargas, boolean aplicarFormas) {
+        if (d.formasAtivas != null) {
+            formasAtivasCache = d.formasAtivas;
+        }
+        if (aplicarRecargas) {
+            preencher(modeloRecargas, d.recargas);
+            carregandoRecargas = false;
+            mostrarGhost(cardTabelaRecargas, ghostRecargas, false);
+            if (d.erroRecargas != null) {
+                erro(this, "Não foi possível carregar as recargas do banco de dados:\n" + d.erroRecargas);
+            }
+        }
+        if (aplicarFormas) {
+            preencher(modeloFormas, d.formas);
+            carregandoFormas = false;
+            mostrarGhost(cardTabelaFormas, ghostFormas, false);
+            if (d.erroFormas != null) {
+                erro(this, "Não foi possível carregar as formas de pagamento:\n" + d.erroFormas);
+            }
+        }
+        atualizarTotal();
+    }
+
+    private void preencher(DefaultTableModel modelo, List<Object[]> linhas) {
+        modelo.setRowCount(0);
+        if (linhas != null) {
+            for (Object[] l : linhas) {
+                modelo.addRow(l);
+            }
+        }
+    }
+
+    private void mostrarGhost(JPanel card, GhostPanel ghost, boolean ligar) {
+        ((CardLayout) card.getLayout()).show(card, ligar ? "ghost" : "tabela");
+        if (ligar) {
+            ghost.iniciar();
+        } else {
+            ghost.parar();
+        }
+    }
+
+    /** Roda numa thread de fundo, com UMA conexão para tudo (cada parte trata o seu próprio erro). */
+    private DadosCarga buscarDados(boolean recargas, boolean formas) throws SQLException {
+        DadosCarga d = new DadosCarga();
+        try (Connection con = conectar()) {
+            try {
+                garantirTabelaFormas(con);
+            } catch (SQLException ex) {
+                d.erroFormas = ex.getMessage();
+            }
+            if (recargas) {
+                try {
+                    d.recargas = consultarRecargas(con);
+                } catch (SQLException ex) {
+                    d.erroRecargas = ex.getMessage();
+                }
+            }
+            if (d.erroFormas == null) {
+                try {
+                    if (formas) {
+                        d.formas = consultarFormas(con);
+                    }
+                    d.formasAtivas = consultarFormasAtivas(con);
+                } catch (SQLException ex) {
+                    d.erroFormas = ex.getMessage();
+                }
+            }
+        }
+        return d;
+    }
+
+    /** SELECT de todas as recargas, já convertido em linhas da tabela. */
+    private List<Object[]> consultarRecargas(Connection con) throws SQLException {
         String sql = "SELECT ID_Recarga AS id_recarga, `ID_Cartão` AS id_cartao, "
                 + "`ID_Funcionário` AS id_func, Valor AS valor, "
                 + "Forma_Pagamento AS forma, Data_Hora AS data_hora "
                 + "FROM recargas ORDER BY Data_Hora DESC";
 
-        modeloRecargas.setRowCount(0);
-
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement(sql);
-                ResultSet rs = ps.executeQuery()) {
-
+        List<Object[]> linhas = new ArrayList<>();
+        try (PreparedStatement ps = con.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 BigDecimal valor = rs.getBigDecimal("valor");
                 if (valor == null) {
@@ -287,7 +448,7 @@ public class TelaRecargas extends JPanel {
                         .setScale(0, RoundingMode.HALF_UP).longValue();
                 Timestamp ts = rs.getTimestamp("data_hora");
 
-                modeloRecargas.addRow(new Object[] {
+                linhas.add(new Object[] {
                         String.format("%03d", rs.getLong("id_recarga")),
                         String.format("%03d", rs.getLong("id_cartao")),
                         rs.getString("id_func"),
@@ -297,10 +458,8 @@ public class TelaRecargas extends JPanel {
                         ts != null ? ts.toLocalDateTime().format(DATA_HORA) : ""
                 });
             }
-        } catch (SQLException ex) {
-            erro(this, "Não foi possível carregar as recargas do banco de dados:\n" + ex.getMessage());
         }
-        atualizarTotal();
+        return linhas;
     }
 
     private void abrirModalNovaRecarga() {
@@ -309,7 +468,7 @@ public class TelaRecargas extends JPanel {
             return;
         }
 
-        List<String> formas = listarFormasAtivas();
+        List<String> formas = obterFormasAtivas();
         if (formas.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                     "Não há nenhuma forma de pagamento ativa.\n"
@@ -377,20 +536,33 @@ public class TelaRecargas extends JPanel {
                 erro(modal, "Informe um valor válido, maior que zero (ex.: 10,00).");
                 return;
             }
+            String forma = (String) cmbForma.getSelectedItem();
+            long idCartaoFinal = idCartao;
 
-            try {
-                long creditos = registrarRecarga(idCartao, valor, (String) cmbForma.getSelectedItem());
-                JOptionPane.showMessageDialog(modal,
-                        "Recarga registrada!\n" + MOEDA.format(valor) + " = " + creditos
-                                + " créditos adicionados ao cartão " + String.format("%03d", idCartao) + ".",
-                        "Sucesso", JOptionPane.INFORMATION_MESSAGE);
-                modal.dispose();
-                carregarRecargas();
-            } catch (RecargaException ex) {
-                erro(modal, ex.getMessage());
-            } catch (SQLException ex) {
-                erro(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage());
-            }
+            // salva em segundo plano: a janela não congela enquanto o banco responde
+            btnSalvar.setEnabled(false);
+            btnCancelar.setEnabled(false);
+            btnSalvar.setText("Salvando...");
+
+            async(() -> registrarRecarga(idCartaoFinal, valor, forma),
+                    creditos -> {
+                        JOptionPane.showMessageDialog(modal,
+                                "Recarga registrada!\n" + MOEDA.format(valor) + " = " + creditos
+                                        + " créditos adicionados ao cartão " + String.format("%03d", idCartaoFinal) + ".",
+                                "Sucesso", JOptionPane.INFORMATION_MESSAGE);
+                        modal.dispose();
+                        carregar(true, false);
+                    },
+                    ex -> {
+                        btnSalvar.setEnabled(true);
+                        btnCancelar.setEnabled(true);
+                        btnSalvar.setText("Salvar Recarga");
+                        if (ex instanceof RecargaException) {
+                            erro(modal, ex.getMessage());
+                        } else {
+                            erro(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage());
+                        }
+                    });
         });
 
         JPanel rodape = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
@@ -520,47 +692,56 @@ public class TelaRecargas extends JPanel {
         tabelaFormas.setRowSorter(sorterFormas);
 
         painel.add(acoes, BorderLayout.NORTH);
-        painel.add(criarCardTabela(tabelaFormas), BorderLayout.CENTER);
+        ghostFormas = new GhostPanel(3);
+        cardTabelaFormas = criarCardTabela(tabelaFormas, ghostFormas);
+        painel.add(cardTabelaFormas, BorderLayout.CENTER);
         return painel;
     }
 
-    private void carregarFormas() {
-        modeloFormas.setRowCount(0);
-        try (Connection con = conectar()) {
-            garantirTabelaFormas(con);
-            try (PreparedStatement ps = con.prepareStatement(
-                    "SELECT ID_Forma, Nome, Ativo FROM formas_pagamento ORDER BY ID_Forma");
-                    ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    modeloFormas.addRow(new Object[] {
-                            String.format("%03d", rs.getLong("ID_Forma")),
-                            rs.getString("Nome"),
-                            rs.getBoolean("Ativo") ? "Ativa" : "Inativa"
-                    });
-                }
+    private List<Object[]> consultarFormas(Connection con) throws SQLException {
+        List<Object[]> linhas = new ArrayList<>();
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT ID_Forma, Nome, Ativo FROM formas_pagamento ORDER BY ID_Forma");
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                linhas.add(new Object[] {
+                        String.format("%03d", rs.getLong("ID_Forma")),
+                        rs.getString("Nome"),
+                        rs.getBoolean("Ativo") ? "Ativa" : "Inativa"
+                });
             }
-        } catch (SQLException ex) {
-            erro(this, "Não foi possível carregar as formas de pagamento:\n" + ex.getMessage());
         }
-        atualizarTotal();
+        return linhas;
     }
 
-    /** Nomes das formas ativas, usadas na lista da "Nova Recarga". */
-    private List<String> listarFormasAtivas() {
+    private List<String> consultarFormasAtivas(Connection con) throws SQLException {
         List<String> nomes = new ArrayList<>();
-        try (Connection con = conectar()) {
-            garantirTabelaFormas(con);
-            try (PreparedStatement ps = con.prepareStatement(
-                    "SELECT Nome FROM formas_pagamento WHERE Ativo = TRUE ORDER BY Nome");
-                    ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    nomes.add(rs.getString("Nome"));
-                }
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT Nome FROM formas_pagamento WHERE Ativo = TRUE ORDER BY Nome");
+                ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                nomes.add(rs.getString("Nome"));
             }
-        } catch (SQLException ex) {
-            erro(this, "Não foi possível carregar as formas de pagamento:\n" + ex.getMessage());
         }
         return nomes;
+    }
+
+    /**
+     * Formas ativas para o modal "Nova Recarga". Usa a lista da última carga (abre na hora);
+     * só consulta o banco se ainda não houver nenhuma.
+     */
+    private List<String> obterFormasAtivas() {
+        if (formasAtivasCache != null && !formasAtivasCache.isEmpty()) {
+            return formasAtivasCache;
+        }
+        try (Connection con = conectar()) {
+            garantirTabelaFormas(con);
+            formasAtivasCache = consultarFormasAtivas(con);
+        } catch (SQLException ex) {
+            erro(this, "Não foi possível carregar as formas de pagamento:\n" + ex.getMessage());
+            return new ArrayList<>();
+        }
+        return formasAtivasCache;
     }
 
     /** Cria a tabela na primeira vez e já deixa 4 formas básicas cadastradas. */
@@ -641,17 +822,31 @@ public class TelaRecargas extends JPanel {
                 erro(modal, "O nome pode ter no máximo 50 caracteres.");
                 return;
             }
-            try {
-                salvarForma(id, nome, chkAtiva.isSelected());
-                modal.dispose();
-                carregarFormas();
-            } catch (SQLException ex) {
-                if (ex.getErrorCode() == 1062) { // chave duplicada (Nome é UNIQUE)
-                    erro(modal, "Já existe uma forma de pagamento com o nome \"" + nome + "\".");
-                } else {
-                    erro(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage());
-                }
-            }
+            boolean ativa = chkAtiva.isSelected();
+
+            btnSalvar.setEnabled(false);
+            btnCancelar.setEnabled(false);
+            btnSalvar.setText("Salvando...");
+
+            async(() -> {
+                        salvarForma(id, nome, ativa);
+                        return Boolean.TRUE;
+                    },
+                    ok -> {
+                        modal.dispose();
+                        carregar(false, true);
+                    },
+                    ex -> {
+                        btnSalvar.setEnabled(true);
+                        btnCancelar.setEnabled(true);
+                        btnSalvar.setText("Salvar");
+                        if (ex instanceof SQLException && ((SQLException) ex).getErrorCode() == 1062) {
+                            // chave duplicada (Nome é UNIQUE)
+                            erro(modal, "Já existe uma forma de pagamento com o nome \"" + nome + "\".");
+                        } else {
+                            erro(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage());
+                        }
+                    });
         });
 
         JPanel rodape = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
@@ -818,8 +1013,9 @@ public class TelaRecargas extends JPanel {
         return t;
     }
 
-    private JPanel criarCardTabela(JTable tabela) {
-        JPanel card = new JPanel(new BorderLayout()) {
+    /** Card com duas \"páginas\": a tabela de verdade e o ghost loading. */
+    private JPanel criarCardTabela(JTable tabela, GhostPanel ghost) {
+        JPanel card = new JPanel(new CardLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -838,7 +1034,9 @@ public class TelaRecargas extends JPanel {
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.setBorder(null);
-        card.add(scroll, BorderLayout.CENTER);
+
+        card.add(scroll, "tabela");
+        card.add(ghost, "ghost");
         return card;
     }
 
@@ -905,6 +1103,111 @@ public class TelaRecargas extends JPanel {
 
     private void erro(Component pai, String msg) {
         JOptionPane.showMessageDialog(pai, msg, "Atenção", JOptionPane.ERROR_MESSAGE);
+    }
+
+    /**
+     * Roda a tarefa numa thread de fundo e devolve o resultado (ou o erro) na thread da interface.
+     * Assim nenhuma consulta ao banco trava a tela.
+     */
+    private <T> void async(Callable<T> tarefa, Consumer<T> aoConcluir, Consumer<Exception> aoFalhar) {
+        new SwingWorker<T, Void>() {
+            @Override
+            protected T doInBackground() throws Exception {
+                return tarefa.call();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    aoConcluir.accept(get());
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException ee) {
+                    Throwable causa = ee.getCause();
+                    aoFalhar.accept(causa instanceof Exception ? (Exception) causa : new Exception(causa));
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Ghost loading: linhas "fantasma" cinza com um brilho que passa da esquerda para a direita,
+     * imitando a tabela enquanto os dados ainda estão chegando.
+     */
+    private static class GhostPanel extends JPanel {
+        private static final Color BASE = new Color(20, 36, 60);
+        private static final Color BRILHO = new Color(38, 64, 102);
+        private static final int ALTURA_CABECALHO = 40;
+        private static final int ALTURA_LINHA = 42;
+
+        private final int colunas;
+        private float fase = -0.3f;
+        private final Timer timer = new Timer(30, e -> {
+            fase += 0.025f;
+            if (fase > 1.3f) {
+                fase = -0.3f;
+            }
+            repaint();
+        });
+
+        GhostPanel(int colunas) {
+            this.colunas = colunas;
+            setOpaque(false);
+        }
+
+        void iniciar() {
+            fase = -0.3f;
+            if (!timer.isRunning()) {
+                timer.start();
+            }
+        }
+
+        void parar() {
+            timer.stop();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int w = getWidth();
+            int h = getHeight();
+            int celula = Math.max(1, w / colunas);
+            int linhas = Math.max(1, (h - ALTURA_CABECALHO) / ALTURA_LINHA);
+
+            // linhas divisórias (iguais às da tabela de verdade)
+            g2.setColor(new Color(18, 35, 60));
+            g2.drawLine(0, ALTURA_CABECALHO, w, ALTURA_CABECALHO);
+            for (int r = 0; r < linhas; r++) {
+                int y = ALTURA_CABECALHO + (r + 1) * ALTURA_LINHA - 1;
+                g2.drawLine(0, y, w, y);
+            }
+
+            // brilho que atravessa todas as barras de uma vez
+            float cx = fase * w;
+            float meia = Math.max(180f, w * 0.22f);
+            g2.setPaint(new LinearGradientPaint(
+                    new Point2D.Float(cx - meia, 0), new Point2D.Float(cx + meia, 0),
+                    new float[] { 0f, 0.5f, 1f }, new Color[] { BASE, BRILHO, BASE }));
+
+            // cabeçalho
+            for (int c = 0; c < colunas; c++) {
+                int bw = (int) (celula * 0.34);
+                g2.fillRoundRect(c * celula + (celula - bw) / 2, (ALTURA_CABECALHO - 10) / 2, bw, 10, 8, 8);
+            }
+
+            // linhas (larguras variadas para parecer conteúdo de verdade)
+            for (int r = 0; r < linhas; r++) {
+                int y = ALTURA_CABECALHO + r * ALTURA_LINHA + (ALTURA_LINHA - 14) / 2;
+                for (int c = 0; c < colunas; c++) {
+                    int bw = (int) (celula * (0.30 + ((r * 7 + c * 13) % 5) * 0.07));
+                    g2.fillRoundRect(c * celula + (celula - bw) / 2, y, bw, 14, 10, 10);
+                }
+            }
+            g2.dispose();
+        }
     }
 
     /** Atalho para rodar um Runnable quando o texto de um campo muda. */
