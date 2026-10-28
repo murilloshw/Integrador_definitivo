@@ -4,12 +4,6 @@ import java.util.Base64;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
-/**
- * Funcionário do sistema. Não existe tabela separada de login:
- * o próprio cadastro do funcionário guarda usuário, senha e permissões.
- *
- * A senha nunca é guardada em texto puro: fica apenas o hash (PBKDF2) + salt.
- */
 public class Funcionario {
 
     private static final int ITERACOES = 65536;
@@ -27,12 +21,10 @@ public class Funcionario {
     private boolean permissaoAdmin;
     private boolean ativo;
 
-    // true apenas para o login fixo "admin" (Manager Master)
-    private final boolean managerMaster;
-
+    // Construtor para novo funcionário
     public Funcionario(String id, String nome, String cpf, String telefone, String email,
             String cargo, String usuario, String senha, boolean permissaoAdmin,
-            boolean ativo, boolean managerMaster) {
+            boolean ativo, boolean managerMasterIgnorado) {
         this.id = id;
         this.nome = nome;
         this.cpf = cpf;
@@ -42,13 +34,25 @@ public class Funcionario {
         this.usuario = usuario;
         this.permissaoAdmin = permissaoAdmin;
         this.ativo = ativo;
-        this.managerMaster = managerMaster;
         definirSenha(senha);
     }
 
-    // ---------------------------------------------------------------
-    // SENHA PROTEGIDA
-    // ---------------------------------------------------------------
+    // Construtor para uso do banco (onde já temos os hashes)
+    public Funcionario(String id, String nome, String cpf, String telefone, String email,
+            String cargo, String usuario, String salt, String senhaHash, boolean permissaoAdmin,
+            boolean ativo, boolean managerMasterIgnorado) {
+        this.id = id;
+        this.nome = nome;
+        this.cpf = cpf;
+        this.telefone = telefone;
+        this.email = email;
+        this.cargo = cargo;
+        this.usuario = usuario;
+        this.salt = salt;
+        this.senhaHash = senhaHash;
+        this.permissaoAdmin = permissaoAdmin;
+        this.ativo = ativo;
+    }
 
     public final void definirSenha(String senha) {
         byte[] saltBytes = new byte[16];
@@ -58,6 +62,7 @@ public class Funcionario {
     }
 
     public boolean senhaConfere(String senhaDigitada) {
+        if (salt == null || salt.isEmpty()) return false;
         byte[] saltBytes = Base64.getDecoder().decode(salt);
         String hashDigitado = gerarHash(senhaDigitada, saltBytes);
         return MessageDigest.isEqual(
@@ -65,7 +70,7 @@ public class Funcionario {
                 senhaHash.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
-    private static String gerarHash(String senha, byte[] saltBytes) {
+    public static String gerarHash(String senha, byte[] saltBytes) {
         try {
             PBEKeySpec spec = new PBEKeySpec(senha.toCharArray(), saltBytes, ITERACOES, TAMANHO_CHAVE);
             SecretKeyFactory fabrica = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
@@ -75,10 +80,7 @@ public class Funcionario {
         }
     }
 
-    // ---------------------------------------------------------------
-    // GETTERS / SETTERS
-    // ---------------------------------------------------------------
-
+    // Getters e Setters
     public String getId() { return id; }
     public String getNome() { return nome; }
     public String getCpf() { return cpf; }
@@ -88,7 +90,6 @@ public class Funcionario {
     public String getUsuario() { return usuario; }
     public boolean isPermissaoAdmin() { return permissaoAdmin; }
     public boolean isAtivo() { return ativo; }
-    public boolean isManagerMaster() { return managerMaster; }
 
     public void setNome(String nome) { this.nome = nome; }
     public void setCpf(String cpf) { this.cpf = cpf; }
