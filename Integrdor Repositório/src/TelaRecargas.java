@@ -80,7 +80,7 @@ public class TelaRecargas extends JPanel {
     // ---------------------------------------------------------------
     // REGRAS E CONSTANTES
     // ---------------------------------------------------------------
-    private static final int CREDITOS_POR_REAL = 5;
+    static final int CREDITOS_POR_REAL = 5; // visível no pacote: o autoatendimento usa a mesma regra
 
     private static final Color FUNDO = new Color(2, 12, 27);
     private static final Color CARD = new Color(10, 22, 40);
@@ -114,6 +114,9 @@ public class TelaRecargas extends JPanel {
     private JButton abaFormas;
     private boolean abaFormasAtiva = false;
 
+    /** Ação do botão "Autoatendimento" (definida pelo App, que mostra a tela presa por cima de tudo). */
+    private Runnable acaoAutoatendimento;
+
     private JTable tabelaRecargas;
     private DefaultTableModel modeloRecargas;
     private TableRowSorter<DefaultTableModel> sorterRecargas;
@@ -138,9 +141,24 @@ public class TelaRecargas extends JPanel {
     private List<String> formasAtivasCache = null;
 
     /** Erro de regra de negócio (mensagem já pronta para mostrar ao usuário). */
-    private static class RecargaException extends Exception {
+    public static class RecargaException extends Exception {
         RecargaException(String msg) {
             super(msg);
+        }
+    }
+
+    /** Dados de leitura de um cartão (usado pelo autoatendimento para mostrar saldo e nome). */
+    public static class CartaoInfo {
+        public final long id;
+        public final String nome;
+        public final long creditos;
+        public final boolean ativo;
+
+        CartaoInfo(long id, String nome, long creditos, boolean ativo) {
+            this.id = id;
+            this.nome = nome;
+            this.creditos = creditos;
+            this.ativo = ativo;
         }
     }
 
@@ -208,6 +226,54 @@ public class TelaRecargas extends JPanel {
         carregar(true, Sessao.isManagerMaster());
     }
 
+    /** Define o que o botão "Autoatendimento" faz (o App abre a tela do cliente). */
+    public void setAcaoAutoatendimento(Runnable acao) {
+        this.acaoAutoatendimento = acao;
+    }
+
+    // ---------------------------------------------------------------
+    // API DO AUTOATENDIMENTO
+    // Chamadas em SEGUNDO PLANO pela tela do cliente (bloqueiam até o banco responder).
+    // ---------------------------------------------------------------
+
+    /** Lê o cartão. Devolve null se não existir. Não expõe dados do cliente além do nome de exibição. */
+    public CartaoInfo buscarCartao(long idCartao) throws SQLException {
+        String sql = "SELECT `Usuário` AS usuario, Creditos AS creditos, Ativo AS ativo "
+                + "FROM `cartões` WHERE `ID_Cartão` = ?";
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setLong(1, idCartao);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                String nome = rs.getString("usuario");
+                if (nome == null || nome.trim().isEmpty()) {
+                    nome = "cliente";
+                }
+                return new CartaoInfo(idCartao, nome.trim(), rs.getLong("creditos"), rs.getBoolean("ativo"));
+            }
+        }
+    }
+
+    /** Formas de pagamento ativas, buscadas agora (o cliente sempre vê a lista atual). */
+    public List<String> formasAtivasAutoatendimento() throws SQLException {
+        try (Connection con = conectar()) {
+            garantirTabelaFormas(con);
+            return consultarFormasAtivas(con);
+        }
+    }
+
+    /**
+     * Registra uma recarga feita pelo cliente no autoatendimento.
+     * Igual à recarga da recepção, mas SEM funcionário: o campo ID_Funcionário fica vazio (NULL).
+     * Retorna quantos créditos foram adicionados.
+     */
+    public long registrarRecargaAutoatendimento(long idCartao, BigDecimal valor, String forma)
+            throws SQLException, RecargaException {
+        return registrarRecarga(idCartao, valor, forma, null);
+    }
+
     // ---------------------------------------------------------------
     // ABAS
     // ---------------------------------------------------------------
@@ -273,10 +339,18 @@ public class TelaRecargas extends JPanel {
         acoes.add(criarBusca("Buscar por cartão, funcionário ou forma de pagamento...",
                 texto -> filtrar(sorterRecargas, texto)), BorderLayout.WEST);
 
+        JButton btnAuto = criarBotao("Autoatendimento", false, 190);
+        btnAuto.addActionListener(e -> {
+            if (acaoAutoatendimento != null) {
+                acaoAutoatendimento.run();
+            }
+        });
+
         JButton btnNova = criarBotao("+ Nova Recarga", true, 175);
         btnNova.addActionListener(e -> abrirModalNovaRecarga());
         JPanel botoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         botoes.setOpaque(false);
+        botoes.add(btnAuto);
         botoes.add(btnNova);
         acoes.add(botoes, BorderLayout.EAST);
 
@@ -544,7 +618,7 @@ public class TelaRecargas extends JPanel {
             btnCancelar.setEnabled(false);
             btnSalvar.setText("Salvando...");
 
-            async(() -> registrarRecarga(idCartaoFinal, valor, forma),
+            async(() -> registrarRecarga(idCartaoFinal, valor, forma, logado.getId()),
                     creditos -> {
                         JOptionPane.showMessageDialog(modal,
                                 "Recarga registrada!\n" + MOEDA.format(valor) + " = " + creditos
@@ -576,9 +650,10 @@ public class TelaRecargas extends JPanel {
 
     /**
      * Grava a recarga e soma os créditos no cartão, na MESMA transação.
+     * idFuncionario = null quando a recarga é do autoatendimento (campo fica vazio).
      * Retorna quantos créditos foram adicionados.
      */
-    private long registrarRecarga(long idCartao, BigDecimal valor, String forma)
+    private long registrarRecarga(long idCartao, BigDecimal valor, String forma, String idFuncionario)
             throws SQLException, RecargaException {
 
         BigDecimal creditosDec = valor.multiply(BigDecimal.valueOf(CREDITOS_POR_REAL));
@@ -587,7 +662,6 @@ public class TelaRecargas extends JPanel {
                     + "Use múltiplos de R$ 0,20 (1 real = " + CREDITOS_POR_REAL + " créditos).");
         }
         long creditos = creditosDec.longValue();
-        String idFuncionario = Sessao.getLogado().getId();
 
         try (Connection con = conectar()) {
             con.setAutoCommit(false);

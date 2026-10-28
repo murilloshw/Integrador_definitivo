@@ -24,6 +24,11 @@ public class App extends JFrame {
     private TelaRecargas telaRecargas; // Declarada a tela de recargas
     private JPanel conteudoCentralPadrao;
 
+    // Camadas: a tela de autoatendimento fica por cima de tudo (inclusive da barra lateral)
+    private JLayeredPane camadas;
+    private TelaAutoatendimento autoatendimento;
+    private static final int CAMADA_AUTOATENDIMENTO = 900;
+
     public App() {
         setTitle("Sistema Arcade");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -42,7 +47,8 @@ public class App extends JFrame {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                // Com o autoatendimento aberto, o cliente não pode fechar o sistema pelo ESC
+                if (e.getKeyCode() == KeyEvent.VK_ESCAPE && autoatendimento == null) {
                     System.exit(0);
                 }
             }
@@ -52,6 +58,7 @@ public class App extends JFrame {
         JLayeredPane layeredPane = new JLayeredPane();
         layeredPane.setLayout(null);
         setContentPane(layeredPane);
+        camadas = layeredPane;
 
         int larguraTela = getWidth();
         int alturaTela = getHeight();
@@ -91,6 +98,7 @@ public class App extends JFrame {
         telaRecargas.setBounds(70, 0, larguraTela - 70, alturaTela);
         telaRecargas.setVisible(false);
         layeredPane.add(telaRecargas, JLayeredPane.DEFAULT_LAYER);
+        telaRecargas.setAcaoAutoatendimento(this::abrirAutoatendimento);
 
         // Sidebar Fixa
         JPanel sidebar = new JPanel();
@@ -175,8 +183,36 @@ public class App extends JFrame {
                 telaMaquinas.setBounds(70, 0, w - 70, h);
                 telaFuncionarios.setBounds(70, 0, w - 70, h);
                 telaRecargas.setBounds(70, 0, w - 70, h); // Redimensionamento adicionado
+                if (autoatendimento != null) {
+                    autoatendimento.setBounds(0, 0, w, h); // tela do cliente ocupa a janela inteira
+                }
             }
         });
+    }
+
+    /** Abre a tela presa do cliente por cima de tudo. Só sai com login de funcionário. */
+    private void abrirAutoatendimento() {
+        if (autoatendimento != null) {
+            return;
+        }
+        autoatendimento = new TelaAutoatendimento(telaRecargas, this::fecharAutoatendimento);
+        autoatendimento.setBounds(0, 0, getWidth(), getHeight());
+        camadas.add(autoatendimento, Integer.valueOf(CAMADA_AUTOATENDIMENTO));
+        camadas.revalidate();
+        camadas.repaint();
+        autoatendimento.iniciar();
+    }
+
+    /** Fecha a tela do cliente e volta para a aba de Recargas. */
+    private void fecharAutoatendimento() {
+        if (autoatendimento == null) {
+            return;
+        }
+        autoatendimento.encerrar();
+        camadas.remove(autoatendimento);
+        autoatendimento = null;
+        mostrarTela(telaRecargas);
+        camadas.repaint();
     }
 
  private void mostrarTela(JPanel alvo) {
