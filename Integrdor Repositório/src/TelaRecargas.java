@@ -264,14 +264,19 @@ public class TelaRecargas extends JPanel {
         }
     }
 
+
     /**
      * Registra uma recarga feita pelo cliente no autoatendimento.
-     * Igual à recarga da recepção, mas SEM funcionário: o campo ID_Funcionário fica vazio (NULL).
+     * Igual à recarga da recepção, mas quem fica como responsável é o Manager Master.
      * Retorna quantos créditos foram adicionados.
      */
     public long registrarRecargaAutoatendimento(long idCartao, BigDecimal valor, String forma)
             throws SQLException, RecargaException {
-        return registrarRecarga(idCartao, valor, forma, null);
+        Funcionario master = Repositoriofuncionarios.buscarPorUsuario(Repositoriofuncionarios.MASTER_USUARIO);
+        if (master == null) {
+            throw new RecargaException("Manager Master não encontrado. Procure a administração.");
+        }
+        return registrarRecarga(idCartao, valor, forma, master.getId());
     }
 
     // ---------------------------------------------------------------
@@ -650,7 +655,7 @@ public class TelaRecargas extends JPanel {
 
     /**
      * Grava a recarga e soma os créditos no cartão, na MESMA transação.
-     * idFuncionario = null quando a recarga é do autoatendimento (campo fica vazio).
+     * idFuncionario = ID do funcionário responsável (logado, ou o Manager Master no autoatendimento).
      * Retorna quantos créditos foram adicionados.
      */
     private long registrarRecarga(long idCartao, BigDecimal valor, String forma, String idFuncionario)
