@@ -154,6 +154,13 @@ public class TelaAutoatendimento extends JPanel {
     /** true enquanto a janela de saída de funcionário está aberta. */
     private boolean saidaAberta = false;
     private int tentativasSaidaFalhas = 0;
+    /** Até quando a saída fica bloqueada depois de muitas senhas erradas (ms desde 1970). */
+    private long bloqueioSaidaAte = 0;
+    /**
+     * Número da "sessão" do cliente atual. Sobe a cada volta ao início ou ao fechar a tela:
+     * respostas do banco que chegam depois disso são descartadas (não mexem na tela nova).
+     */
+    private int geracao = 0;
 
     private final Timer timerInatividade = new Timer(INATIVIDADE_MS, e -> aoInatividade());
     private final Timer timerContagem = new Timer(1000, e -> contarRegressiva());
@@ -208,6 +215,7 @@ public class TelaAutoatendimento extends JPanel {
 
     /** Chamado pelo App ao fechar a tela: desliga timers e listeners globais. */
     public void encerrar() {
+        geracao++;
         Toolkit.getDefaultToolkit().removeAWTEventListener(atividade);
         timerInatividade.stop();
         timerContagem.stop();
@@ -376,6 +384,7 @@ public class TelaAutoatendimento extends JPanel {
             return;
         }
         final long idCartao = Long.parseLong(digitos.toString());
+        final int geracaoAtual = geracao;
 
         ocupado = true;
         btnContinuar.setEnabled(false);
@@ -383,7 +392,11 @@ public class TelaAutoatendimento extends JPanel {
 
         emBackground(() -> recargas.buscarCartao(idCartao),
                 info -> {
+                    ocupado = false;
                     liberarBotaoContinuar();
+                    if (geracaoAtual != geracao) {
+                        return; // o cliente já voltou ao início (ou a tela foi fechada)
+                    }
                     if (info == null) {
                         mostrarErroCartao("Cartão não encontrado. Confira o número ou procure a recepção.");
                         return;
@@ -397,14 +410,17 @@ public class TelaAutoatendimento extends JPanel {
                     mostrarEtapa(ETAPA_VALOR);
                 },
                 ex -> {
+                    ocupado = false;
                     liberarBotaoContinuar();
-                    mostrarErroCartao(MSG_INDISPONIVEL);
                     registrarFalha("consultar cartão", ex);
+                    if (geracaoAtual == geracao) {
+                        mostrarErroCartao(MSG_INDISPONIVEL);
+                    }
                 });
     }
 
+    /** Só devolve o aspecto normal ao botão (quem controla "ocupado" é quem chamou). */
     private void liberarBotaoContinuar() {
-        ocupado = false;
         btnContinuar.setEnabled(true);
         btnContinuar.setText("Continuar");
     }
@@ -584,6 +600,7 @@ public class TelaAutoatendimento extends JPanel {
         final BigDecimal valor = BigDecimal.valueOf(valorReais);
         final String forma = formaEscolhida;
         final String nomeCliente = cartao.nome;
+        final int geracaoAtual = geracao;
         bloquearPagamento(true);
 
         emBackground(() -> {
@@ -600,6 +617,9 @@ public class TelaAutoatendimento extends JPanel {
                 r -> {
                     ocupado = false;
                     bloquearPagamento(false);
+                    if (geracaoAtual != geracao) {
+                        return; // a recarga já foi gravada; a tela já foi fechada/reiniciada
+                    }
                     mostrarConfirmacao(nomeCliente, idCartao, r[0], r[1]);
                 },
                 ex -> {
@@ -686,6 +706,7 @@ public class TelaAutoatendimento extends JPanel {
 
     /** Volta ao início e limpa tudo o que foi digitado ou consultado. */
     private void voltarAoInicio() {
+        geracao++;
         timerContagem.stop();
         digitos.setLength(0);
         atualizarVisorCartao();
@@ -800,7 +821,7 @@ public class TelaAutoatendimento extends JPanel {
         JLabel titulo = new JLabel("Área de funcionários");
         titulo.setFont(new Font("Segoe UI", Font.BOLD, 20));
         titulo.setForeground(Color.WHITE);
-        JLabel aviso = new JLabel("Digite seu usuário e senha para sair.");
+        JLabel aviso = new JLabel("Digite o usuário e a senha de um administrador ativo.");
         aviso.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         aviso.setForeground(TEXTO_SUAVE);
 
@@ -833,7 +854,26 @@ public class TelaAutoatendimento extends JPanel {
         JButton btnCancelar = criarBotao("Cancelar", false, 16, new Dimension(130, 50));
         JButton btnEntrar = criarBotao("Sair", true, 16, new Dimension(130, 50));
 
+        // true enquanto a conferência no banco está em andamento
+        final boolean[] verificando = { false };
+
+        // Mantém o botão desligado e a contagem certa enquanto durar o bloqueio por tentativas
+        Runnable atualizarBloqueio = () -> {
+            long restante = (bloqueioSaidaAte - System.currentTimeMillis() + 999) / 1000;
+            if (restante > 0) {
+                btnEntrar.setEnabled(false);
+                lblErro.setText("Muitas tentativas. Aguarde " + restante + " s.");
+            } else if (!verificando[0]) {
+                btnEntrar.setEnabled(true);
+                if (lblErro.getText().startsWith("Muitas")) {
+                    lblErro.setText(" ");
+                }
+            }
+        };
+        Timer relogio = new Timer(1000, e -> atualizarBloqueio.run());
+
         Runnable fechar = () -> {
+            relogio.stop();
             dialogo.dispose();
             saidaAberta = false;
             reiniciarInatividade();
@@ -846,40 +886,61 @@ public class TelaAutoatendimento extends JPanel {
             }
         });
 
+        // Toda tentativa que não libera a saída conta para o bloqueio (inclusive usuário sem permissão)
+        Consumer<String> falha = msg -> {
+            tentativasSaidaFalhas++;
+            if (tentativasSaidaFalhas >= MAX_TENTATIVAS_SAIDA) {
+                tentativasSaidaFalhas = 0;
+                bloqueioSaidaAte = System.currentTimeMillis() + BLOQUEIO_SAIDA_S * 1000L;
+                atualizarBloqueio.run();
+            } else {
+                lblErro.setText(msg + " Tentativa " + tentativasSaidaFalhas + " de " + MAX_TENTATIVAS_SAIDA + ".");
+                btnEntrar.setEnabled(true);
+                txtSenha.requestFocusInWindow();
+            }
+        };
+
         btnEntrar.addActionListener(e -> {
             String usuario = txtUsuario.getText().trim();
             String senha = new String(txtSenha.getPassword());
+            txtSenha.setText("");
+
             if (usuario.isEmpty() || senha.isEmpty()) {
                 lblErro.setText("Preencha usuário e senha.");
                 return;
             }
-
-            // Repositoriofuncionarios.autenticar NÃO olha o status: checamos "ativo" logo depois
-            Funcionario funcionario = Repositoriofuncionarios.autenticar(usuario, senha);
-            txtSenha.setText("");
-
-            if (funcionario == null) {
-                tentativasSaidaFalhas++;
-                if (tentativasSaidaFalhas >= MAX_TENTATIVAS_SAIDA) {
-                    bloquearSaida(btnEntrar, lblErro);
-                } else {
-                    lblErro.setText("Usuário ou senha incorretos. Tentativa "
-                            + tentativasSaidaFalhas + " de " + MAX_TENTATIVAS_SAIDA + ".");
-                }
-                txtSenha.requestFocusInWindow();
-                return;
-            }
-            if (!funcionario.isAtivo()) {
-                lblErro.setText("Este funcionário está bloqueado. Procure o Manager Master.");
-                txtSenha.requestFocusInWindow();
+            if (System.currentTimeMillis() < bloqueioSaidaAte) {
+                atualizarBloqueio.run();
                 return;
             }
 
-            tentativasSaidaFalhas = 0;
-            saidaAberta = false;
-            dialogo.dispose();
-            System.out.println("Autoatendimento: saída liberada por " + funcionario.getNome());
-            aoSair.run();
+            // A conferência vai ao banco: roda em segundo plano, com o botão desligado enquanto isso
+            verificando[0] = true;
+            btnEntrar.setEnabled(false);
+            lblErro.setText("Verificando...");
+
+            emBackground(() -> Repositoriofuncionarios.autenticar(usuario, senha),
+                    funcionario -> {
+                        verificando[0] = false;
+                        if (funcionario == null) {
+                            falha.accept("Usuário ou senha incorretos.");
+                        } else if (!funcionario.isAtivo()) {
+                            falha.accept("Este funcionário está bloqueado. Procure o Manager Master.");
+                        } else if (!funcionario.isPermissaoAdmin()) {
+                            falha.accept("Só funcionários administrativos podem sair por aqui.");
+                        } else {
+                            tentativasSaidaFalhas = 0;
+                            System.out.println("Autoatendimento: saída liberada por " + funcionario.getNome());
+                            fechar.run();
+                            aoSair.run();
+                        }
+                    },
+                    ex -> {
+                        verificando[0] = false;
+                        btnEntrar.setEnabled(true);
+                        lblErro.setText("Não foi possível verificar agora. Tente novamente.");
+                        registrarFalha("verificar saída", ex);
+                    });
         });
 
         JPanel botoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
@@ -892,28 +953,9 @@ public class TelaAutoatendimento extends JPanel {
         dialogo.setContentPane(c);
         dialogo.pack();
         dialogo.setLocationRelativeTo(SwingUtilities.getWindowAncestor(this));
+        atualizarBloqueio.run(); // se ainda estiver bloqueado da vez anterior, já mostra
+        relogio.start();
         dialogo.setVisible(true); // modal: só volta quando a janela fechar
-    }
-
-    /** Bloqueia o botão "Sair" por alguns segundos depois de várias senhas erradas. */
-    private void bloquearSaida(JButton btn, JLabel lbl) {
-        final int[] restante = { BLOQUEIO_SAIDA_S };
-        btn.setEnabled(false);
-        lbl.setText("Muitas tentativas. Aguarde " + restante[0] + " s.");
-
-        Timer t = new Timer(1000, null);
-        t.addActionListener(ev -> {
-            restante[0]--;
-            if (restante[0] <= 0) {
-                t.stop();
-                btn.setEnabled(true);
-                tentativasSaidaFalhas = 0;
-                lbl.setText(" ");
-            } else {
-                lbl.setText("Muitas tentativas. Aguarde " + restante[0] + " s.");
-            }
-        });
-        t.start();
     }
 
     private JLabel criarRotuloCampo(String texto) {

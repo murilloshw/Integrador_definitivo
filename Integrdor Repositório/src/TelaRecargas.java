@@ -231,6 +231,74 @@ public class TelaRecargas extends JPanel {
         this.acaoAutoatendimento = acao;
     }
 
+    /** true enquanto uma atualização automática está em andamento. */
+    private boolean atualizandoSilencio = false;
+
+    /**
+     * Atualização em tempo real da aba Recargas: busca em segundo plano, sem ghost e sem mensagem de erro.
+     * Só troca a tabela se chegou algo novo ou alterado.
+     */
+    public void atualizarSilenciosamente() {
+        if (carregandoRecargas || atualizandoSilencio) {
+            return;
+        }
+        atualizandoSilencio = true;
+        final int cargaAtual = cargaRecargasId; // se uma carga explícita começar depois, esta resposta é descartada
+        async(() -> {
+                    try (Connection con = conectar()) {
+                        return consultarRecargas(con);
+                    }
+                },
+                linhas -> {
+                    atualizandoSilencio = false;
+                    if (cargaAtual == cargaRecargasId && !carregandoRecargas && !mesmasLinhas(linhas)) {
+                        aplicarRecargasPreservandoSelecao(linhas);
+                    }
+                },
+                ex -> {
+                    atualizandoSilencio = false;
+                    System.err.println("Atualização das recargas falhou: " + ex.getMessage());
+                });
+    }
+
+    private void aplicarRecargasPreservandoSelecao(List<Object[]> linhas) {
+        String idSelecionado = null;
+        int visual = tabelaRecargas.getSelectedRow();
+        if (visual >= 0) {
+            idSelecionado = String.valueOf(modeloRecargas.getValueAt(tabelaRecargas.convertRowIndexToModel(visual), 0));
+        }
+
+        preencher(modeloRecargas, linhas);
+
+        if (idSelecionado != null) {
+            for (int m = 0; m < modeloRecargas.getRowCount(); m++) {
+                if (idSelecionado.equals(modeloRecargas.getValueAt(m, 0))) {
+                    int v = tabelaRecargas.convertRowIndexToView(m);
+                    tabelaRecargas.setRowSelectionInterval(v, v);
+                    break;
+                }
+            }
+        }
+        atualizarTotal();
+    }
+
+    private boolean mesmasLinhas(List<Object[]> novas) {
+        if (novas.size() != modeloRecargas.getRowCount()) {
+            return false;
+        }
+        int colunas = modeloRecargas.getColumnCount();
+        for (int r = 0; r < novas.size(); r++) {
+            Object[] atual = new Object[colunas];
+            for (int c = 0; c < colunas; c++) {
+                atual[c] = modeloRecargas.getValueAt(r, c);
+            }
+            if (!java.util.Arrays.equals(atual, novas.get(r))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // ---------------------------------------------------------------
     // API DO AUTOATENDIMENTO
     // Chamadas em SEGUNDO PLANO pela tela do cliente (bloqueiam até o banco responder).
@@ -267,16 +335,12 @@ public class TelaRecargas extends JPanel {
 
     /**
      * Registra uma recarga feita pelo cliente no autoatendimento.
-     * Igual à recarga da recepção, mas quem fica como responsável é o Manager Master.
-     * Retorna quantos créditos foram adicionados.
+     * Igual à recarga da recepção, mas sem funcionário responsável: o campo Funcionário fica vazio
+     * (conforme a documentação). Retorna quantos créditos foram adicionados.
      */
     public long registrarRecargaAutoatendimento(long idCartao, BigDecimal valor, String forma)
             throws SQLException, RecargaException {
-        Funcionario master = Repositoriofuncionarios.buscarPorUsuario(Repositoriofuncionarios.MASTER_USUARIO);
-        if (master == null) {
-            throw new RecargaException("Manager Master não encontrado. Procure a administração.");
-        }
-        return registrarRecarga(idCartao, valor, forma, master.getId());
+        return registrarRecarga(idCartao, valor, forma, null);
     }
 
     // ---------------------------------------------------------------
@@ -690,7 +754,11 @@ public class TelaRecargas extends JPanel {
                         "INSERT INTO recargas (`ID_Cartão`, `ID_Funcionário`, Valor, Forma_Pagamento) "
                                 + "VALUES (?, ?, ?, ?)")) {
                     ps.setLong(1, idCartao);
-                    ps.setString(2, idFuncionario);
+                    if (idFuncionario == null) {
+                        ps.setNull(2, java.sql.Types.VARCHAR); // autoatendimento: sem funcionário
+                    } else {
+                        ps.setString(2, idFuncionario);
+                    }
                     ps.setBigDecimal(3, valor);
                     ps.setString(4, forma);
                     ps.executeUpdate();

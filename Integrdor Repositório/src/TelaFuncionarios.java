@@ -367,7 +367,7 @@ public class TelaFuncionarios extends JPanel {
 
             try {
                 if (edicao) {
-                    atualizarFuncionario(idAtual, nome, cpf, telefone, email, cargo, usuario, senha, admin, ativo);
+                    atualizarFuncionario(idAtual, existente.getUsuario(), nome, cpf, telefone, email, cargo, usuario, senha, admin, ativo);
                 } else {
                     inserirFuncionario(nome, cpf, telefone, email, cargo, usuario, senha, admin, ativo);
                 }
@@ -408,7 +408,7 @@ public class TelaFuncionarios extends JPanel {
                 }
                 
                 // Insere a senha na tabela de segurança
-                try (PreparedStatement ps = con.prepareStatement("INSERT INTO Seguranca_Senhas (Usuario, Salt) VALUES (?, ?)")) {
+                try (PreparedStatement ps = con.prepareStatement("INSERT INTO Seguranca_Senhas (Usuario, Salt) VALUES (?, ?) ON DUPLICATE KEY UPDATE Salt = VALUES(Salt)")) {
                     ps.setString(1, user);
                     ps.setString(2, salt);
                     ps.executeUpdate();
@@ -421,8 +421,9 @@ public class TelaFuncionarios extends JPanel {
         }
     }
 
-    private void atualizarFuncionario(String id, String nome, String cpf, String tel, String email, String cargo, String user, String senhaNova, boolean admin, boolean ativo) throws SQLException {
+    private void atualizarFuncionario(String id, String usuarioAnterior, String nome, String cpf, String tel, String email, String cargo, String user, String senhaNova, boolean admin, boolean ativo) throws SQLException {
         boolean mudarSenha = !senhaNova.isEmpty();
+        boolean renomeado = usuarioAnterior != null && !usuarioAnterior.equals(user);
         
         try (Connection con = conectar()) {
             con.setAutoCommit(false);
@@ -435,25 +436,40 @@ public class TelaFuncionarios extends JPanel {
                     ps.setString(i++, nome); ps.setString(i++, cpf); ps.setString(i++, tel); ps.setString(i++, email);
                     ps.setString(i++, cargo); ps.setString(i++, user); ps.setBoolean(i++, admin); ps.setBoolean(i++, ativo);
                     
+                    String saltStr = null;
                     if (mudarSenha) {
                         byte[] saltBytes = new byte[16];
                         new SecureRandom().nextBytes(saltBytes);
                         ps.setString(i++, Funcionario.gerarHash(senhaNova, saltBytes));
-                        ps.setLong(i++, Long.parseLong(id));
-                        ps.executeUpdate();
+                        saltStr = Base64.getEncoder().encodeToString(saltBytes);
+                    }
+                    ps.setLong(i, Long.parseLong(id));
+                    ps.executeUpdate();
 
-                        // Salva o Salt na tabela de segurança
-                        String saltStr = Base64.getEncoder().encodeToString(saltBytes);
+                    // O login confere a senha com o Salt guardado em Seguranca_Senhas, usando o nome de usuário.
+                    // Se o usuário mudou de nome, o Salt precisa ir junto; senão o login fica "sem senha configurada".
+                    if (renomeado) {
+                        try (PreparedStatement mover = con.prepareStatement(
+                                "INSERT INTO Seguranca_Senhas (Usuario, Salt) SELECT ?, Salt FROM Seguranca_Senhas "
+                                + "WHERE Usuario = ? ON DUPLICATE KEY UPDATE Salt = VALUES(Salt)")) {
+                            mover.setString(1, user);
+                            mover.setString(2, usuarioAnterior);
+                            mover.executeUpdate();
+                        }
+                        try (PreparedStatement apagar = con.prepareStatement(
+                                "DELETE FROM Seguranca_Senhas WHERE Usuario = ?")) {
+                            apagar.setString(1, usuarioAnterior);
+                            apagar.executeUpdate();
+                        }
+                    }
+
+                    if (saltStr != null) {
                         try (PreparedStatement ps2 = con.prepareStatement(
-                                "INSERT INTO Seguranca_Senhas (Usuario, Salt) VALUES (?, ?) ON DUPLICATE KEY UPDATE Salt = ?")) {
+                                "INSERT INTO Seguranca_Senhas (Usuario, Salt) VALUES (?, ?) ON DUPLICATE KEY UPDATE Salt = VALUES(Salt)")) {
                             ps2.setString(1, user);
                             ps2.setString(2, saltStr);
-                            ps2.setString(3, saltStr);
                             ps2.executeUpdate();
                         }
-                    } else {
-                        ps.setLong(i++, Long.parseLong(id));
-                        ps.executeUpdate();
                     }
                 }
                 con.commit();

@@ -16,6 +16,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -30,6 +34,7 @@ import javax.swing.JTextField;
 import javax.swing.RowFilter;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
@@ -125,14 +130,6 @@ public class TelaCartao extends JPanel {
             }
         });
 
-          addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    System.exit(0);
-                }
-            }
-        });
         txtBuscar.addKeyListener(new KeyAdapter() {
             @Override
             public void keyReleased(KeyEvent e) {
@@ -284,7 +281,7 @@ public class TelaCartao extends JPanel {
         add(painelRodape, BorderLayout.SOUTH);
 
         // Carrega os cartões do banco (também atualiza o "Total: X cartões")
-        carregarCartoes();
+        carregarCartoes(true);
     }
 
     /**
@@ -300,9 +297,14 @@ public class TelaCartao extends JPanel {
         }
     }
 
-    /** Recarrega a tabela a partir do banco. Pode ser chamado por outras telas. */
+    /** Recarrega a tabela a partir do banco (em segundo plano). Chamado ao abrir a tela. */
     public void recarregar() {
-        carregarCartoes();
+        carregarCartoes(true);
+    }
+
+    /** Atualização em tempo real: busca em segundo plano, sem mensagem de erro e sem piscar se nada mudou. */
+    public void atualizarSilenciosamente() {
+        carregarCartoes(false);
     }
 
     private void atualizarTotal() {
@@ -315,47 +317,123 @@ public class TelaCartao extends JPanel {
     // (nomes com acento ficam entre crases: `Cartões`, `ID_Cartão`, `Usuário`)
     // -----------------------------------------------------------------
 
+    private static final String SQL_CARTOES = "SELECT c.`ID_Cartão` AS id_cartao, c.ID_Cliente AS id_cliente, "
+            + "cl.Nome_Completo AS nome_cliente, c.`Usuário` AS usuario, "
+            + "c.Creditos AS creditos, c.Pontos AS pontos, c.Ativo AS ativo "
+            + "FROM `cartões` c "
+            + "JOIN clientes cl ON cl.ID_Cliente = c.ID_Cliente "
+            + "ORDER BY c.`ID_Cartão`";
+
+    /** true enquanto uma busca no banco está em andamento (evita buscas sobrepostas). */
+    private boolean carregando = false;
+    /** true se pediram uma nova busca enquanto outra ainda corria: ela é refeita ao terminar. */
+    private boolean recarregarDepois = false;
+
     /**
-     * SELECT de todos os cartões (já com o nome do cliente via JOIN) e
-     * preenchimento da tabela.
+     * SELECT de todos os cartões (com o nome do cliente via JOIN), feito em segundo plano.
+     * A interface não trava esperando o banco.
      */
-    private void carregarCartoes() {
-        String sql = "SELECT c.`ID_Cartão` AS id_cartao, c.ID_Cliente AS id_cliente, "
-                + "cl.Nome_Completo AS nome_cliente, c.`Usuário` AS usuario, "
-                + "c.Creditos AS creditos, c.Pontos AS pontos, c.Ativo AS ativo "
-                + "FROM `cartões` c "
-                + "JOIN clientes cl ON cl.ID_Cliente = c.ID_Cliente "
-                + "ORDER BY c.`ID_Cartão`";
+    private void carregarCartoes(boolean mostrarErro) {
+        if (carregando) {
+            recarregarDepois = true; // um pedido (ex.: clique em Cartões) não pode se perder
+            return;
+        }
+        carregando = true;
 
-        modeloTabela.setRowCount(0);
-
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement(sql);
-                ResultSet rs = ps.executeQuery()) {
-
-            while (rs.next()) {
-                modeloTabela.addRow(new Object[] {
-                        String.format("%03d", rs.getLong("id_cartao")),
-                        String.format("%03d", rs.getLong("id_cliente")),
-                        rs.getString("nome_cliente"),
-                        rs.getString("usuario"),
-                        rs.getLong("creditos"),
-                        rs.getLong("pontos"),
-                        rs.getBoolean("ativo") ? "Ativo" : "Inativo"
-                });
+        new SwingWorker<List<Object[]>, Void>() {
+            @Override
+            protected List<Object[]> doInBackground() throws Exception {
+                List<Object[]> linhas = new ArrayList<>();
+                try (Connection con = conectar();
+                        PreparedStatement ps = con.prepareStatement(SQL_CARTOES);
+                        ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        linhas.add(new Object[] {
+                                String.format("%03d", rs.getLong("id_cartao")),
+                                String.format("%03d", rs.getLong("id_cliente")),
+                                rs.getString("nome_cliente"),
+                                rs.getString("usuario"),
+                                rs.getLong("creditos"),
+                                rs.getLong("pontos"),
+                                rs.getBoolean("ativo") ? "Ativo" : "Inativo"
+                        });
+                    }
+                }
+                return linhas;
             }
-        } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this,
-                    "Não foi possível carregar os cartões do banco de dados:\n" + ex.getMessage(),
-                    "Erro de banco de dados", JOptionPane.ERROR_MESSAGE);
+
+            @Override
+            protected void done() {
+                carregando = false;
+                try {
+                    aplicarLinhas(get());
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException ee) {
+                    String msg = ee.getCause() != null ? ee.getCause().getMessage() : ee.getMessage();
+                    if (mostrarErro) {
+                        JOptionPane.showMessageDialog(TelaCartao.this,
+                                "Não foi possível carregar os cartões do banco de dados:\n" + msg,
+                                "Erro de banco de dados", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        System.err.println("Atualização dos cartões falhou: " + msg);
+                    }
+                }
+                if (recarregarDepois) {
+                    recarregarDepois = false;
+                    carregarCartoes(true);
+                }
+            }
+        }.execute();
+    }
+
+    /** Troca as linhas da tabela só se algo mudou, mantendo a linha selecionada. */
+    private void aplicarLinhas(List<Object[]> novas) {
+        if (mesmasLinhas(novas)) {
+            return;
         }
 
+        String idSelecionado = null;
+        int visual = tabela.getSelectedRow();
+        if (visual >= 0) {
+            idSelecionado = String.valueOf(modeloTabela.getValueAt(tabela.convertRowIndexToModel(visual), 0));
+        }
+
+        modeloTabela.setRowCount(0);
+        for (Object[] linha : novas) {
+            modeloTabela.addRow(linha);
+        }
+
+        if (idSelecionado != null) {
+            for (int m = 0; m < modeloTabela.getRowCount(); m++) {
+                if (idSelecionado.equals(modeloTabela.getValueAt(m, 0))) {
+                    int v = tabela.convertRowIndexToView(m);
+                    tabela.setRowSelectionInterval(v, v);
+                    break;
+                }
+            }
+        }
         atualizarTotal();
     }
 
-    /**
-     * INSERT de um novo cartão. Retorna o ID gerado pelo banco (AUTO_INCREMENT).
-     */
+    private boolean mesmasLinhas(List<Object[]> novas) {
+        if (novas.size() != modeloTabela.getRowCount()) {
+            return false;
+        }
+        int colunas = modeloTabela.getColumnCount();
+        for (int r = 0; r < novas.size(); r++) {
+            Object[] atual = new Object[colunas];
+            for (int c = 0; c < colunas; c++) {
+                atual[c] = modeloTabela.getValueAt(r, c);
+            }
+            if (!Arrays.equals(atual, novas.get(r))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** INSERT de um novo cartão. Retorna o ID gerado pelo banco (AUTO_INCREMENT). */
     private long inserirCartao(long idCliente, String usuario, long credito, long pontos, boolean ativo)
             throws SQLException {
         String sql = "INSERT INTO `cartões` (ID_Cliente, `Usuário`, Creditos, Pontos, Ativo) "

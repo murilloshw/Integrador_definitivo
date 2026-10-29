@@ -61,6 +61,7 @@ public class TelaLogin extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
 
+        SairComEsc.instalar(); // ESC encerra o sistema também nesta tela
         verificarEstruturaBanco();
 
         criarTela();
@@ -134,11 +135,6 @@ public class TelaLogin extends JFrame {
         email.addActionListener(e -> { tela.animarCliqueTeclado(); fazerLogin(); });
         senha.addActionListener(e -> { tela.animarCliqueTeclado(); fazerLogin(); });
 
-        tela.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "fechar");
-        tela.getActionMap().put("fechar", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) { dispose(); }
-        });
     }
 
     private void alternarSenha() {
