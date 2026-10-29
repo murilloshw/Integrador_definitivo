@@ -27,6 +27,7 @@ public class App extends JFrame {
     private TelaFuncionarios telaFuncionarios;
     private TelaRecargas telaRecargas;
     private TelaPremios telaPremios; // Nova tela adicionada
+    private TelaPartidas telapartidas;
     private JPanel conteudoCentralPadrao;
 
     public App() {
@@ -108,6 +109,11 @@ public class App extends JFrame {
         telaPremios.setVisible(false);
         layeredPane.add(telaPremios, JLayeredPane.DEFAULT_LAYER);
 
+        telapartidas = new TelaPartidas();
+        telapartidas.setBounds(70, 0, larguraTela - 70, alturaTela);
+        telapartidas.setVisible(false);
+        layeredPane.add(telapartidas, JLayeredPane.DEFAULT_LAYER);
+
         // Sidebar Fixa
         JPanel sidebar = new JPanel();
         sidebar.setBackground(new Color(24, 75, 150));
@@ -149,6 +155,9 @@ public class App extends JFrame {
                     telaCartao.atualizarNomesClientes();
                     telaCartao.recarregar(); // <--- FIX: Atualiza o banco de dados ao clicar
                     mostrarTela(telaCartao);
+                } else if (texto.equalsIgnoreCase("Partidas")) {
+                    telapartidas.recarregar();
+                    mostrarTela(telapartidas);
                 } else if (texto.equalsIgnoreCase("Máquinas")) {
                     mostrarTela(telaMaquinas);
                 } else if (texto.equalsIgnoreCase("Recargas")) {
@@ -159,7 +168,8 @@ public class App extends JFrame {
                     mostrarTela(telaPremios);
                 } else if (texto.equalsIgnoreCase("Funcionários")) {
                     if (!Sessao.isManagerMaster()) {
-                        JOptionPane.showMessageDialog(this, "Apenas o Manager Master pode acessar Funcionários.", "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                        JOptionPane.showMessageDialog(this, "Apenas o Manager Master pode acessar Funcionários.",
+                                "Acesso negado", JOptionPane.WARNING_MESSAGE);
                         return;
                     }
                     telaFuncionarios.recarregar();
@@ -196,7 +206,8 @@ public class App extends JFrame {
                 telaMaquinas.setBounds(70, 0, w - 70, h);
                 telaFuncionarios.setBounds(70, 0, w - 70, h);
                 telaRecargas.setBounds(70, 0, w - 70, h);
-                telaPremios.setBounds(70, 0, w - 70, h); 
+                telaPremios.setBounds(70, 0, w - 70, h);
+                telapartidas.setBounds(70, 0, w - 70, h);
             }
         });
     }
@@ -208,6 +219,7 @@ public class App extends JFrame {
         telaFuncionarios.setVisible(alvo == telaFuncionarios);
         telaRecargas.setVisible(alvo == telaRecargas);
         telaPremios.setVisible(alvo == telaPremios);
+        telapartidas.setVisible(alvo == telapartidas);
         conteudoCentralPadrao.setVisible(alvo == null);
 
         getContentPane().revalidate();

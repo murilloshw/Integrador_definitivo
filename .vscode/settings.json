@@ -3,10 +3,16 @@
         "lib/**/*.jar",
         "c:\\Users\\pedro60837296\\Downloads\\mysql-connector-j-9.7.0\\mysql-connector-j-9.7.0.jar",
         "c:\\Users\\murilo60846906\\Downloads\\mysql-connector-j-9.7.0 (1) 2 14\\mysql-connector-j-9.7.0\\mysql-connector-j-9.7.0.jar",
+<<<<<<< Updated upstream
 <<<<<<< HEAD
         "c:\\Users\\entony60466456\\Downloads\\mysql-connector-j-9.7.0 (1) 2 22 (1)\\mysql-connector-j-9.7.0\\mysql-connector-j-9.7.0.jar"
 =======
         "c:\\Users\\Hipzp\\Downloads\\mysql-connector-j-9.7.0 (1) 2 33\\mysql-connector-j-9.7.0\\mysql-connector-j-9.7.0.jar"
 >>>>>>> 1ccae973963e30f9fbbcaa38ac1bda48c1c8340b
     ]
+=======
+        "c:\\Users\\Hipzp\\Downloads\\mysql-connector-j-9.7.0 (1) 2 33\\mysql-connector-j-9.7.0\\mysql-connector-j-9.7.0.jar",
+        "c:\\Users\\entony60466456\\Downloads\\mysql-connector-j-9.7.0 (1) 2 22 (1)\\mysql-connector-j-9.7.0\\mysql-connector-j-9.7.0.jar"
+]
+>>>>>>> Stashed changes
 }
