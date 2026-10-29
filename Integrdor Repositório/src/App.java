@@ -15,22 +15,26 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 
+<<<<<<< HEAD
 //entony vittor´peaswrwlemshnrsdf
+=======
+>>>>>>> 1ccae973963e30f9fbbcaa38ac1bda48c1c8340b
 public class App extends JFrame {
 
     private TelaClientes telaClientes;
     private TelaCartao telaCartao;
+    private TelaMaquinas telaMaquinas;
     private TelaFuncionarios telaFuncionarios;
+    private TelaRecargas telaRecargas;
+    private TelaPremios telaPremios; // Nova tela adicionada
     private JPanel conteudoCentralPadrao;
 
     public App() {
         setTitle("Sistema Arcade");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-        // 1. Remove a barra de título superior do Windows
         setUndecorated(true);
 
-        // 2. Tela cheia real (esconde a barra de tarefas do Windows)
         GraphicsDevice gd = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
         if (gd.isFullScreenSupported()) {
             gd.setFullScreenWindow(this);
@@ -38,10 +42,12 @@ public class App extends JFrame {
             setExtendedState(JFrame.MAXIMIZED_BOTH);
         }
 
+<<<<<<< HEAD
         // colocando o icone da janela
+=======
+>>>>>>> 1ccae973963e30f9fbbcaa38ac1bda48c1c8340b
         setIconImage(carregarIconeJanela());
 
-        // Tecla ESC para fechar o programa rapidamente
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -65,38 +71,54 @@ public class App extends JFrame {
         conteudoCentralPadrao.setBounds(70, 0, larguraTela - 70, alturaTela);
         layeredPane.add(conteudoCentralPadrao, JLayeredPane.DEFAULT_LAYER);
 
-        // Instância da Tela de Clientes (Inicia Oculta)
+        // Instâncias das Telas
         telaClientes = new TelaClientes();
         telaClientes.setBounds(70, 0, larguraTela - 70, alturaTela);
         telaClientes.setVisible(false);
         layeredPane.add(telaClientes, JLayeredPane.DEFAULT_LAYER);
 
-        // Instância da Tela de Cartões (Inicia Oculta)
         telaCartao = new TelaCartao(telaClientes);
         telaCartao.setBounds(70, 0, larguraTela - 70, alturaTela);
         telaCartao.setVisible(false);
         layeredPane.add(telaCartao, JLayeredPane.DEFAULT_LAYER);
 
+<<<<<<< HEAD
         // Instância da Tela de Funcionários (Inicia Oculta) - acesso só do Manager
         // Master
+=======
+        telaMaquinas = new TelaMaquinas();
+        telaMaquinas.setBounds(70, 0, larguraTela - 70, alturaTela);
+        telaMaquinas.setVisible(false);
+        layeredPane.add(telaMaquinas, JLayeredPane.DEFAULT_LAYER);
+
+>>>>>>> 1ccae973963e30f9fbbcaa38ac1bda48c1c8340b
         telaFuncionarios = new TelaFuncionarios();
         telaFuncionarios.setBounds(70, 0, larguraTela - 70, alturaTela);
         telaFuncionarios.setVisible(false);
         layeredPane.add(telaFuncionarios, JLayeredPane.DEFAULT_LAYER);
 
-        // Sidebar Fixa de Fundo
+        telaRecargas = new TelaRecargas();
+        telaRecargas.setBounds(70, 0, larguraTela - 70, alturaTela);
+        telaRecargas.setVisible(false);
+        layeredPane.add(telaRecargas, JLayeredPane.DEFAULT_LAYER);
+
+        // --- NOVA TELA DE PRÊMIOS ---
+        telaPremios = new TelaPremios();
+        telaPremios.setBounds(70, 0, larguraTela - 70, alturaTela);
+        telaPremios.setVisible(false);
+        layeredPane.add(telaPremios, JLayeredPane.DEFAULT_LAYER);
+
+        // Sidebar Fixa
         JPanel sidebar = new JPanel();
         sidebar.setBackground(new Color(24, 75, 150));
         sidebar.setLayout(null);
         sidebar.setBounds(0, 0, 70, alturaTela);
         layeredPane.add(sidebar, JLayeredPane.DEFAULT_LAYER);
 
-        // Logo no topo da Sidebar
         JPanel logo = criarLogo();
         logo.setBounds(0, 0, 70, 70);
         sidebar.add(logo);
 
-        // Informações dos botões da Sidebar
         String[][] botoesInfo = {
                 { "Início", "botao-de-inicio.png" },
                 { "Clientes", "botao cliente.png" },
@@ -109,40 +131,46 @@ public class App extends JFrame {
                 { "Sair", "botao saida.png" }
         };
 
-        // Criar os botões extensíveis
         int yAtual = 70;
         for (String[] btn : botoesInfo) {
             String texto = btn[0];
             String imagem = btn[1];
 
-            // O botão "Funcionários" só aparece para o Manager Master
             if (texto.equals("Funcionários") && !Sessao.isManagerMaster()) {
                 continue;
             }
 
             PainelExtensor botaoExtensivel = new PainelExtensor(texto, imagem, yAtual, 70, 180);
 
-            // Ação ao clicar no botão
             botaoExtensivel.setAcaoClique(() -> {
-
                 if (texto.equalsIgnoreCase("Clientes")) {
                     mostrarTela(telaClientes);
                 } else if (texto.equalsIgnoreCase("Cartões")) {
                     telaCartao.atualizarNomesClientes();
+                    telaCartao.recarregar(); // <--- FIX: Atualiza o banco de dados ao clicar
                     mostrarTela(telaCartao);
+                } else if (texto.equalsIgnoreCase("Máquinas")) {
+                    mostrarTela(telaMaquinas);
+                } else if (texto.equalsIgnoreCase("Recargas")) {
+                    telaRecargas.carregarDadosRecargas();
+                    mostrarTela(telaRecargas);
+                } else if (texto.equalsIgnoreCase("Prêmios")) {
+                    telaPremios.recarregar(); // <--- NOVO: Carrega a tela de prêmios
+                    mostrarTela(telaPremios);
                 } else if (texto.equalsIgnoreCase("Funcionários")) {
-                    // Só o Manager Master pode abrir o cadastro de funcionários
                     if (!Sessao.isManagerMaster()) {
-                        JOptionPane.showMessageDialog(this,
-                                "Apenas o Manager Master pode acessar Funcionários.",
-                                "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                        JOptionPane.showMessageDialog(this, "Apenas o Manager Master pode acessar Funcionários.", "Acesso negado", JOptionPane.WARNING_MESSAGE);
                         return;
                     }
+                    telaFuncionarios.recarregar();
                     mostrarTela(telaFuncionarios);
                 } else if (texto.equalsIgnoreCase("Início")) {
                     mostrarTela(null);
                 } else if (texto.equalsIgnoreCase("Sair")) {
+<<<<<<< HEAD
                     // Encerra a sessão, sai da tela cheia e volta para uma tela de login nova
+=======
+>>>>>>> 1ccae973963e30f9fbbcaa38ac1bda48c1c8340b
                     Sessao.encerrar();
                     GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
                             .setFullScreenWindow(null);
@@ -155,7 +183,6 @@ public class App extends JFrame {
             yAtual += 70;
         }
 
-        // Redimensionamento dinâmico
         addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
@@ -166,17 +193,25 @@ public class App extends JFrame {
                 conteudoCentralPadrao.setBounds(70, 0, w - 70, h);
                 telaClientes.setBounds(70, 0, w - 70, h);
                 telaCartao.setBounds(70, 0, w - 70, h);
+                telaMaquinas.setBounds(70, 0, w - 70, h);
                 telaFuncionarios.setBounds(70, 0, w - 70, h);
+                telaRecargas.setBounds(70, 0, w - 70, h);
+                telaPremios.setBounds(70, 0, w - 70, h); 
             }
         });
     }
 
-    // Mostra apenas a tela informada (null = tela de início)
     private void mostrarTela(JPanel alvo) {
         telaClientes.setVisible(alvo == telaClientes);
         telaCartao.setVisible(alvo == telaCartao);
+        telaMaquinas.setVisible(alvo == telaMaquinas);
         telaFuncionarios.setVisible(alvo == telaFuncionarios);
+        telaRecargas.setVisible(alvo == telaRecargas);
+        telaPremios.setVisible(alvo == telaPremios);
         conteudoCentralPadrao.setVisible(alvo == null);
+
+        getContentPane().revalidate();
+        getContentPane().repaint();
     }
 
     private JPanel criarLogo() {
@@ -204,7 +239,6 @@ public class App extends JFrame {
     }
 
     private ImageIcon carregarLogo() {
-        // Busca a imagem no classpath (/images/Logo_arcade.png)
         URL resource = getClass().getResource("/images/Logo_arcade.png");
         if (resource != null) {
             return new ImageIcon(resource);

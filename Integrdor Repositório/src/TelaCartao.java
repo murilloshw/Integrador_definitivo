@@ -36,6 +36,8 @@ import javax.swing.table.TableRowSorter;
 import javax.swing.text.MaskFormatter;
 
 public class TelaCartao extends JPanel {
+    
+  
 
     private JTable tabela;
     private DefaultTableModel modeloTabela;
@@ -123,6 +125,14 @@ public class TelaCartao extends JPanel {
             }
         });
 
+          addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                    System.exit(0);
+                }
+            }
+        });
         txtBuscar.addKeyListener(new KeyAdapter() {
             @Override
             public void keyReleased(KeyEvent e) {

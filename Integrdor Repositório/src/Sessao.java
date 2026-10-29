@@ -18,8 +18,8 @@ public final class Sessao {
         return logado;
     }
 
-    /** Só o Manager Master pode cadastrar/editar funcionários e outras ações restritas. */
+    /** Agora a permissão vem do banco de dados (Permissão_ADM). */
     public static boolean isManagerMaster() {
-        return logado != null && logado.isManagerMaster();
+        return logado != null && logado.isPermissaoAdmin();
     }
 }
