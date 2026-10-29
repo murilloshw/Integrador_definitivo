@@ -52,8 +52,10 @@ public class TelaCartao extends JPanel {
     private Connection conectar() throws SQLException {
         Connection con = Conexao.conectar();
         if (con == null) {
-            // Conexao.conectar() devolve null quando falha (e já imprime o motivo no terminal)
-            throw new SQLException("Não foi possível conectar ao MySQL. Verifique usuário, senha e se o servidor está ligado.");
+            // Conexao.conectar() devolve null quando falha (e já imprime o motivo no
+            // terminal)
+            throw new SQLException(
+                    "Não foi possível conectar ao MySQL. Verifique usuário, senha e se o servidor está ligado.");
         }
         return con;
     }
@@ -275,7 +277,10 @@ public class TelaCartao extends JPanel {
         carregarCartoes();
     }
 
-    /** Atualiza o nome do cliente em cada cartão (caso o cliente tenha sido editado). */
+    /**
+     * Atualiza o nome do cliente em cada cartão (caso o cliente tenha sido
+     * editado).
+     */
     public void atualizarNomesClientes() {
         for (int i = 0; i < modeloTabela.getRowCount(); i++) {
             String nome = telaClientes.buscarNomePorId(String.valueOf(modeloTabela.getValueAt(i, 1)));
@@ -300,7 +305,10 @@ public class TelaCartao extends JPanel {
     // (nomes com acento ficam entre crases: `Cartões`, `ID_Cartão`, `Usuário`)
     // -----------------------------------------------------------------
 
-    /** SELECT de todos os cartões (já com o nome do cliente via JOIN) e preenchimento da tabela. */
+    /**
+     * SELECT de todos os cartões (já com o nome do cliente via JOIN) e
+     * preenchimento da tabela.
+     */
     private void carregarCartoes() {
         String sql = "SELECT c.`ID_Cartão` AS id_cartao, c.ID_Cliente AS id_cliente, "
                 + "cl.Nome_Completo AS nome_cliente, c.`Usuário` AS usuario, "
@@ -335,7 +343,9 @@ public class TelaCartao extends JPanel {
         atualizarTotal();
     }
 
-    /** INSERT de um novo cartão. Retorna o ID gerado pelo banco (AUTO_INCREMENT). */
+    /**
+     * INSERT de um novo cartão. Retorna o ID gerado pelo banco (AUTO_INCREMENT).
+     */
     private long inserirCartao(long idCliente, String usuario, long credito, long pontos, boolean ativo)
             throws SQLException {
         String sql = "INSERT INTO `cartões` (ID_Cliente, `Usuário`, Creditos, Pontos, Ativo) "
@@ -402,7 +412,8 @@ public class TelaCartao extends JPanel {
     private void abrirModal(int linhaModelo) {
         boolean edicao = linhaModelo >= 0;
         java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
-        JDialog modal = new JDialog(parentWindow, edicao ? "Editar Cartão" : "Cadastrar Novo Cartão", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog modal = new JDialog(parentWindow, edicao ? "Editar Cartão" : "Cadastrar Novo Cartão",
+                java.awt.Dialog.ModalityType.APPLICATION_MODAL);
         modal.setSize(440, 520);
         modal.setLocationRelativeTo(parentWindow);
         modal.setLayout(new BorderLayout());
@@ -543,7 +554,6 @@ public class TelaCartao extends JPanel {
         modal.add(painelBotoes, BorderLayout.SOUTH);
         modal.setVisible(true);
     }
-
 
     // Botão de lápis azul (ícone desenhado em código, sem depender de imagem/fonte)
     private JButton criarBotaoEditar() {

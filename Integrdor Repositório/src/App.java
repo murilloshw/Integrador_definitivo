@@ -15,7 +15,6 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 
-
 //entony vittor´peaswrwlemshnrsdf
 public class App extends JFrame {
 
@@ -39,7 +38,7 @@ public class App extends JFrame {
             setExtendedState(JFrame.MAXIMIZED_BOTH);
         }
 
-        //colocando o icone da janela
+        // colocando o icone da janela
         setIconImage(carregarIconeJanela());
 
         // Tecla ESC para fechar o programa rapidamente
@@ -78,7 +77,8 @@ public class App extends JFrame {
         telaCartao.setVisible(false);
         layeredPane.add(telaCartao, JLayeredPane.DEFAULT_LAYER);
 
-        // Instância da Tela de Funcionários (Inicia Oculta) - acesso só do Manager Master
+        // Instância da Tela de Funcionários (Inicia Oculta) - acesso só do Manager
+        // Master
         telaFuncionarios = new TelaFuncionarios();
         telaFuncionarios.setBounds(70, 0, larguraTela - 70, alturaTela);
         telaFuncionarios.setVisible(false);
@@ -141,11 +141,11 @@ public class App extends JFrame {
                     mostrarTela(telaFuncionarios);
                 } else if (texto.equalsIgnoreCase("Início")) {
                     mostrarTela(null);
-                }
-                else if (texto.equalsIgnoreCase("Sair")) {
+                } else if (texto.equalsIgnoreCase("Sair")) {
                     // Encerra a sessão, sai da tela cheia e volta para uma tela de login nova
                     Sessao.encerrar();
-                    GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().setFullScreenWindow(null);
+                    GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+                            .setFullScreenWindow(null);
                     dispose();
                     new TelaLogin();
                 }
