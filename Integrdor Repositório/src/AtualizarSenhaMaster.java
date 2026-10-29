@@ -2,16 +2,23 @@ import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.util.Base64;
+import java.util.Scanner;
 
 public class AtualizarSenhaMaster {
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 2) {
-            System.out.println("Uso: java AtualizarSenhaMaster <usuario> <nova_senha>");
+        Scanner entrada = new Scanner(System.in);
+
+        System.out.print("Usuário (ex: admin): ");
+        String usuario = entrada.nextLine().trim();
+
+        System.out.print("Nova senha: ");
+        String senha = entrada.nextLine();
+
+        if (usuario.isEmpty() || senha.isEmpty()) {
+            System.out.println("Usuário e senha não podem ser vazios.");
             return;
         }
-        String usuario = args[0];
-        String senha = args[1];
 
         byte[] saltBytes = new byte[16];
         new SecureRandom().nextBytes(saltBytes);
