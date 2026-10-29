@@ -59,8 +59,10 @@ public class TelaCartao extends JPanel {
     private Connection conectar() throws SQLException {
         Connection con = Conexao.conectar();
         if (con == null) {
-            // Conexao.conectar() devolve null quando falha (e já imprime o motivo no terminal)
-            throw new SQLException("Não foi possível conectar ao MySQL. Verifique usuário, senha e se o servidor está ligado.");
+            // Conexao.conectar() devolve null quando falha (e já imprime o motivo no
+            // terminal)
+            throw new SQLException(
+                    "Não foi possível conectar ao MySQL. Verifique usuário, senha e se o servidor está ligado.");
         }
         return con;
     }
@@ -282,7 +284,10 @@ public class TelaCartao extends JPanel {
         carregarCartoes(true);
     }
 
-    /** Atualiza o nome do cliente em cada cartão (caso o cliente tenha sido editado). */
+    /**
+     * Atualiza o nome do cliente em cada cartão (caso o cliente tenha sido
+     * editado).
+     */
     public void atualizarNomesClientes() {
         for (int i = 0; i < modeloTabela.getRowCount(); i++) {
             String nome = telaClientes.buscarNomePorId(String.valueOf(modeloTabela.getValueAt(i, 1)));
@@ -495,7 +500,8 @@ public class TelaCartao extends JPanel {
     private void abrirModal(int linhaModelo) {
         boolean edicao = linhaModelo >= 0;
         java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
-        JDialog modal = new JDialog(parentWindow, edicao ? "Editar Cartão" : "Cadastrar Novo Cartão", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
+        JDialog modal = new JDialog(parentWindow, edicao ? "Editar Cartão" : "Cadastrar Novo Cartão",
+                java.awt.Dialog.ModalityType.APPLICATION_MODAL);
         modal.setSize(440, 520);
         modal.setLocationRelativeTo(parentWindow);
         modal.setLayout(new BorderLayout());
@@ -636,7 +642,6 @@ public class TelaCartao extends JPanel {
         modal.add(painelBotoes, BorderLayout.SOUTH);
         modal.setVisible(true);
     }
-
 
     // Botão de lápis azul (ícone desenhado em código, sem depender de imagem/fonte)
     private JButton criarBotaoEditar() {

@@ -157,7 +157,13 @@ public class App extends JFrame {
                 } else if (texto.equalsIgnoreCase("Início")) {
                     mostrarTela(null);
                 } else if (texto.equalsIgnoreCase("Sair")) {
-                    sair();
+
+                    Sessao.encerrar();
+                    GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+                            .setFullScreenWindow(null);
+                    dispose();
+                    new TelaLogin();
+
                 }
             });
 
