@@ -8,6 +8,7 @@ import java.net.URL;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 
 public class TelaLogin extends JFrame {
@@ -32,13 +33,34 @@ public class TelaLogin extends JFrame {
     private static final double BASE_W = 1664.0;
     private static final double BASE_H = 936.0;
 
+    // ---------------------------------------------------------------
+    // Resultado da autenticação (cada caso vira uma mensagem diferente)
+    // ---------------------------------------------------------------
+    private enum Resultado {
+        SUCESSO,
+        CREDENCIAIS_INVALIDAS,
+        BLOQUEADO,
+        SEM_SENHA,
+        SEM_CONEXAO,
+        ERRO_BANCO
+    }
+
+    private static class ResultadoLogin {
+        final Resultado tipo;
+        final Funcionario funcionario;
+
+        ResultadoLogin(Resultado tipo, Funcionario funcionario) {
+            this.tipo = tipo;
+            this.funcionario = funcionario;
+        }
+    }
+
     public TelaLogin() {
         setTitle("Arcade");
         setUndecorated(true);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
-        
-        // Garante que a tabela auxiliar de Salt exista
+
         verificarEstruturaBanco();
 
         criarTela();
@@ -54,8 +76,10 @@ public class TelaLogin extends JFrame {
                                  "Salt VARCHAR(50) NOT NULL)";
                     st.executeUpdate(sql);
                 } catch (Exception e) {
-                    System.err.println("Aviso: Sem permissão para criar tabela de segurança. " + e.getMessage());
+                    System.err.println("Aviso: não foi possível verificar a tabela Seguranca_Senhas: " + e.getMessage());
                 }
+            } else {
+                System.err.println("Aviso: sem conexão com o banco ao iniciar a tela de login.");
             }
         } catch (Exception ex) {
             System.err.println("Erro de conexão: " + ex.getMessage());
@@ -124,6 +148,10 @@ public class TelaLogin extends JFrame {
         repaint();
     }
 
+    // ---------------------------------------------------------------
+    // LOGIN
+    // ---------------------------------------------------------------
+
     private void fazerLogin() {
         if (carregando) return;
 
@@ -135,58 +163,124 @@ public class TelaLogin extends JFrame {
             return;
         }
 
-        Funcionario funcionario = null;
+        ResultadoLogin resultado = autenticar(usuario, senhaDigitada);
 
-        // Busca direto no banco de dados
+        if (resultado.tipo == Resultado.SUCESSO) {
+            Funcionario funcionario = resultado.funcionario;
+            Sessao.iniciar(funcionario); // a permissão de admin vem do campo Permissão_ADM
+            iniciarCarregamento(funcionario);
+            return;
+        }
+
+        switch (resultado.tipo) {
+            case CREDENCIAIS_INVALIDAS:
+                JOptionPane.showMessageDialog(this, "Usuário ou senha incorretos.", "Erro", JOptionPane.ERROR_MESSAGE);
+                senha.setText("");
+                senha.requestFocus();
+                break;
+
+            case BLOQUEADO:
+                JOptionPane.showMessageDialog(this,
+                        "Este funcionário está bloqueado.\nProcure o Manager Master.",
+                        "Acesso bloqueado", JOptionPane.WARNING_MESSAGE);
+                break;
+
+            case SEM_SENHA:
+                JOptionPane.showMessageDialog(this,
+                        "Este usuário ainda não tem senha configurada.\nPeça ao Manager Master para definir uma.",
+                        "Acesso indisponível", JOptionPane.WARNING_MESSAGE);
+                break;
+
+            case SEM_CONEXAO:
+                falhaNaConexao();
+                break;
+
+            case ERRO_BANCO:
+            default:
+                JOptionPane.showMessageDialog(this,
+                        "Erro ao consultar o banco de dados.\nVeja o console para mais detalhes.",
+                        "Erro", JOptionPane.ERROR_MESSAGE);
+                break;
+        }
+    }
+
+    /**
+     * Confere usuário e senha direto na tabela Funcionários.
+     * Ordem das regras:
+     *  1. o usuário existe?            -> senão: credenciais inválidas
+     *  2. o usuário tem salt/senha?    -> senão: sem senha configurada
+     *  3. a senha confere?             -> senão: credenciais inválidas
+     *  4. o funcionário está ativo?    -> senão: bloqueado
+     *  5. ok -> sucesso (o campo Permissão_ADM vai junto no objeto)
+     */
+    private ResultadoLogin autenticar(String usuario, String senhaDigitada) {
+        String sql = "SELECT f.ID_Funcionário, f.Nome_Completo, f.CPF, f.Telefone, f.Email, " +
+                     "f.Cargo, f.Usuário, f.Senha, f.Permissão_ADM, f.Ativo, s.Salt " +
+                     "FROM funcionários f " +
+                     "LEFT JOIN Seguranca_Senhas s ON f.Usuário = s.Usuario " +
+                     "WHERE f.Usuário = ?";
+
         try (Connection con = Conexao.conectar()) {
-            if (con != null) {
-                String sql = "SELECT f.*, s.Salt FROM Funcionários f " +
-                             "LEFT JOIN Seguranca_Senhas s ON f.Usuário = s.Usuario " +
-                             "WHERE f.Usuário = ?";
-                try (PreparedStatement ps = con.prepareStatement(sql)) {
-                    ps.setString(1, usuario);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            String salt = rs.getString("Salt");
-                            if (salt == null) salt = ""; // Previne erro se for um usuário antigo
+            if (con == null) {
+                return new ResultadoLogin(Resultado.SEM_CONEXAO, null);
+            }
 
-                            Funcionario fDb = new Funcionario(
-                                    String.format("%03d", rs.getLong("ID_Funcionário")),
-                                    rs.getString("Nome_Completo"),
-                                    rs.getString("CPF"),
-                                    rs.getString("Telefone"),
-                                    rs.getString("Email"),
-                                    rs.getString("Cargo"),
-                                    rs.getString("Usuário"),
-                                    salt,
-                                    rs.getString("Senha"),
-                                    rs.getBoolean("Permissão_ADM"),
-                                    rs.getBoolean("Ativo"),
-                                    false // Não é mais master falso
-                            );
-                            if (!salt.isEmpty() && fDb.senhaConfere(senhaDigitada)) {
-                                funcionario = fDb;
-                            }
-                        }
+            try (PreparedStatement ps = con.prepareStatement(sql)) {
+                ps.setString(1, usuario);
+
+                try (ResultSet rs = ps.executeQuery()) {
+                    // 1. usuário existe?
+                    if (!rs.next()) {
+                        return new ResultadoLogin(Resultado.CREDENCIAIS_INVALIDAS, null);
                     }
+
+                    String salt = rs.getString("Salt");
+                    String hash = rs.getString("Senha");
+
+                    // 2. tem senha configurada?
+                    if (salt == null || salt.isEmpty() || hash == null || hash.isEmpty()) {
+                        return new ResultadoLogin(Resultado.SEM_SENHA, null);
+                    }
+
+                    Funcionario f = new Funcionario(
+                            String.format("%03d", rs.getLong("ID_Funcionário")),
+                            rs.getString("Nome_Completo"),
+                            rs.getString("CPF"),
+                            rs.getString("Telefone"),
+                            rs.getString("Email"),
+                            rs.getString("Cargo"),
+                            rs.getString("Usuário"),
+                            salt,
+                            hash,
+                            rs.getBoolean("Permissão_ADM"),
+                            rs.getBoolean("Ativo"),
+                            false
+                    );
+
+                    // 3. senha confere?
+                    if (!f.senhaConfere(senhaDigitada)) {
+                        return new ResultadoLogin(Resultado.CREDENCIAIS_INVALIDAS, null);
+                    }
+
+                    // 4. ativo?
+                    if (!f.isAtivo()) {
+                        return new ResultadoLogin(Resultado.BLOQUEADO, null);
+                    }
+
+                    // 5. sucesso
+                    return new ResultadoLogin(Resultado.SUCESSO, f);
                 }
             }
-        } catch (Exception ex) {
+        } catch (SQLException ex) {
             System.err.println("Erro de banco no login: " + ex.getMessage());
+            ex.printStackTrace();
+            return new ResultadoLogin(Resultado.ERRO_BANCO, null);
+        } catch (RuntimeException ex) {
+            // ex.: salt que não está em Base64
+            System.err.println("Erro ao validar a senha: " + ex.getMessage());
+            ex.printStackTrace();
+            return new ResultadoLogin(Resultado.ERRO_BANCO, null);
         }
-
-        if (funcionario == null) {
-            JOptionPane.showMessageDialog(this, "Usuário ou senha incorretos.", "Erro", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        if (!funcionario.isAtivo()) {
-            JOptionPane.showMessageDialog(this, "Este funcionário está bloqueado.\nProcure o Manager Master.", "Acesso bloqueado", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        Sessao.iniciar(funcionario);
-        iniciarCarregamento(funcionario);
     }
 
     private void iniciarCarregamento(Funcionario funcionario) {
