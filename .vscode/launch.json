@@ -6,11 +6,17 @@
     "configurations": [
         {
             "type": "java",
+            "name": "TelaLogin",
+            "request": "launch",
+            "mainClass": "TelaLogin",
+            "projectName": "Integrador_definitivo_e1e5e2ff"
+        },
+        {
+            "type": "java",
             "name": "Current File",
             "request": "launch",
             "mainClass": "${file}"
         },
-        
         {
             "type": "java",
             "name": "TelaLogin",
