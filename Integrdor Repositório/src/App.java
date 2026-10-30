@@ -3,6 +3,8 @@ import java.awt.Color;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.net.URL;
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
@@ -21,16 +23,12 @@ public class App extends JFrame {
 
     private TelaClientes telaClientes;
     private TelaCartao telaCartao;
-    private TelaPremios telaPremios;
     private TelaMaquinas telaMaquinas;
     private TelaFuncionarios telaFuncionarios;
     private TelaRecargas telaRecargas;
-<<<<<<< HEAD
-    private TelaPremios telaPremios; // Nova tela adicionada
+    private TelaPremios telaPremios;
     private TelaPartidas telapartidas;
-=======
     private TelaAutoatendimento telaAutoatendimento;
->>>>>>> 9df62e8372717dac44a1c1b4f9652ee285563f33
     private JPanel conteudoCentralPadrao;
     private Timer timerAtualizacao;
 
@@ -96,19 +94,15 @@ public class App extends JFrame {
         telaPremios.setVisible(false);
         layeredPane.add(telaPremios, JLayeredPane.DEFAULT_LAYER);
 
-<<<<<<< HEAD
         telapartidas = new TelaPartidas();
         telapartidas.setBounds(70, 0, larguraTela - 70, alturaTela);
         telapartidas.setVisible(false);
         layeredPane.add(telapartidas, JLayeredPane.DEFAULT_LAYER);
-=======
-        // Autoatendimento: tela "presa" do cliente, por cima de tudo (inclusive da barra lateral)
-        telaAutoatendimento = new TelaAutoatendimento(telaRecargas, this::fecharAutoatendimento);
+
+        telaAutoatendimento = new TelaAutoatendimento(telaRecargas, null);
         telaAutoatendimento.setBounds(0, 0, larguraTela, alturaTela);
         telaAutoatendimento.setVisible(false);
-        layeredPane.add(telaAutoatendimento, JLayeredPane.DRAG_LAYER);
-        telaRecargas.setAcaoAutoatendimento(this::abrirAutoatendimento);
->>>>>>> 9df62e8372717dac44a1c1b4f9652ee285563f33
+        layeredPane.add(telaAutoatendimento, JLayeredPane.POPUP_LAYER);
 
         // Sidebar Fixa
         JPanel sidebar = new JPanel();
@@ -201,11 +195,10 @@ public class App extends JFrame {
                 telaFuncionarios.setBounds(70, 0, w - 70, h);
                 telaRecargas.setBounds(70, 0, w - 70, h);
                 telaPremios.setBounds(70, 0, w - 70, h);
-<<<<<<< HEAD
                 telapartidas.setBounds(70, 0, w - 70, h);
-=======
-                telaAutoatendimento.setBounds(0, 0, w, h);
->>>>>>> 9df62e8372717dac44a1c1b4f9652ee285563f33
+                if (telaAutoatendimento != null) {
+                    telaAutoatendimento.setBounds(0, 0, w, h);
+                }
             }
         });
 
