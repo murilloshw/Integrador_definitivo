@@ -29,7 +29,7 @@ public class App extends JFrame {
     private TelaPremios telaPremios;
     private TelaPartidas telapartidas;
     private TelaAutoatendimento telaAutoatendimento;
-    private JPanel conteudoCentralPadrao;
+    private TelaDashboard telaDashboard;
     private Timer timerAtualizacao;
 
     public App() {
@@ -57,11 +57,10 @@ public class App extends JFrame {
         int larguraTela = getWidth();
         int alturaTela = getHeight();
 
-        // Painel Central Padrão
-        conteudoCentralPadrao = new JPanel();
-        conteudoCentralPadrao.setBackground(new Color(2, 12, 27));
-        conteudoCentralPadrao.setBounds(70, 0, larguraTela - 70, alturaTela);
-        layeredPane.add(conteudoCentralPadrao, JLayeredPane.DEFAULT_LAYER);
+        // Tela de Início (dashboard)
+        telaDashboard = new TelaDashboard();
+        telaDashboard.setBounds(70, 0, larguraTela - 70, alturaTela);
+        layeredPane.add(telaDashboard, JLayeredPane.DEFAULT_LAYER);
 
         // Instâncias das Telas
         telaClientes = new TelaClientes();
@@ -165,9 +164,11 @@ public class App extends JFrame {
                     telaFuncionarios.recarregar();
                     mostrarTela(telaFuncionarios);
                 } else if (texto.equalsIgnoreCase("Início")) {
-                    mostrarTela(null);
+                    telaDashboard.recarregar();
+                    mostrarTela(telaDashboard);
                 } else if (texto.equalsIgnoreCase("Sair")) {
 
+                    timerAtualizacao.stop();
                     Sessao.encerrar();
                     GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
                             .setFullScreenWindow(null);
@@ -188,7 +189,7 @@ public class App extends JFrame {
                 int h = getHeight();
 
                 sidebar.setBounds(0, 0, 70, h);
-                conteudoCentralPadrao.setBounds(70, 0, w - 70, h);
+                telaDashboard.setBounds(70, 0, w - 70, h);
                 telaClientes.setBounds(70, 0, w - 70, h);
                 telaCartao.setBounds(70, 0, w - 70, h);
                 telaMaquinas.setBounds(70, 0, w - 70, h);
@@ -216,7 +217,7 @@ public class App extends JFrame {
         telaRecargas.setVisible(alvo == telaRecargas);
         telaPremios.setVisible(alvo == telaPremios);
         telapartidas.setVisible(alvo == telapartidas);
-        conteudoCentralPadrao.setVisible(alvo == null);
+        telaDashboard.setVisible(alvo == telaDashboard);
 
         getContentPane().revalidate();
         getContentPane().repaint();
@@ -227,7 +228,9 @@ public class App extends JFrame {
         if (telaAutoatendimento.isVisible()) {
             return;
         }
-        if (telaCartao.isVisible()) {
+        if (telaDashboard.isVisible()) {
+            telaDashboard.atualizarSilenciosamente();
+        } else if (telaCartao.isVisible()) {
             telaCartao.atualizarSilenciosamente();
         } else if (telaRecargas.isVisible()) {
             telaRecargas.atualizarSilenciosamente();
