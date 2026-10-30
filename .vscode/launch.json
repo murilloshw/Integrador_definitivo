@@ -4,17 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        {
-            "type": "java",
-            "name": "TelaLogin",
-            "request": "launch",
-            "mainClass": "TelaLogin",
-
-            "projectName": "Integrador_definitivo_6b89c254"
-
- 
-
-        },
+        
         {
             "type": "java",
             "name": "Current File",
@@ -26,7 +16,7 @@
             "name": "TelaLogin",
             "request": "launch",
             "mainClass": "TelaLogin",
-            "projectName": "Integrador_definitivo_6c89edc7"
+            
         }
     ]
 }
