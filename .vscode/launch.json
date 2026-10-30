@@ -9,11 +9,11 @@
             "name": "TelaLogin",
             "request": "launch",
             "mainClass": "TelaLogin",
-<<<<<<< HEAD
+
             "projectName": "Integrador_definitivo_6b89c254"
-=======
-            "projectName": "Integrador_definitivo_e1e5e2ff"
->>>>>>> 9df62e8372717dac44a1c1b4f9652ee285563f33
+
+ 
+
         },
         {
             "type": "java",
