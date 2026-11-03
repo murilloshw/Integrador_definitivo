@@ -18,7 +18,9 @@ import javax.swing.Timer;
 
 public class App extends JFrame {
 
-    /** De quanto em quanto tempo a tela aberta é atualizada com os dados do banco. */
+    /**
+     * De quanto em quanto tempo a tela aberta é atualizada com os dados do banco.
+     */
     private static final int INTERVALO_ATUALIZACAO_MS = 3000;
 
     private TelaClientes telaClientes;
@@ -203,7 +205,8 @@ public class App extends JFrame {
             }
         });
 
-        // Tempo real: a tela aberta busca no banco as alterações feitas em outros lugares
+        // Tempo real: a tela aberta busca no banco as alterações feitas em outros
+        // lugares
         // (recargas no balcão, no autoatendimento ou em outra máquina).
         timerAtualizacao = new Timer(INTERVALO_ATUALIZACAO_MS, e -> atualizarTelaVisivel());
         timerAtualizacao.start();
@@ -223,7 +226,10 @@ public class App extends JFrame {
         getContentPane().repaint();
     }
 
-    /** Atualização periódica: só mexe na tela que está aberta e, sem o autoatendimento na frente. */
+    /**
+     * Atualização periódica: só mexe na tela que está aberta e, sem o
+     * autoatendimento na frente.
+     */
     private void atualizarTelaVisivel() {
         if (telaAutoatendimento.isVisible()) {
             return;
@@ -245,7 +251,10 @@ public class App extends JFrame {
         getContentPane().repaint();
     }
 
-    /** Fecha o autoatendimento (após a saída de um administrador) e atualiza os dados na hora. */
+    /**
+     * Fecha o autoatendimento (após a saída de um administrador) e atualiza os
+     * dados na hora.
+     */
     private void fecharAutoatendimento() {
         telaAutoatendimento.encerrar();
         telaAutoatendimento.setVisible(false);
@@ -299,4 +308,4 @@ public class App extends JFrame {
         ImageIcon logo = carregarLogo();
         return logo != null ? logo.getImage() : null;
     }
-}//app java ta dando jumpscares, aparecendo vermelhinho... igual ao bolder
+}// app java ta dando jumpscares, aparecendo vermelhinho... igual ao bolder
