@@ -30,6 +30,7 @@ public class App extends JFrame {
     private TelaPartidas telapartidas;
     private TelaAutoatendimento telaAutoatendimento;
     private TelaDashboard telaDashboard;
+    private TelaBiblioteca telaBiblioteca;
     private Timer timerAtualizacao;
 
     public App() {
@@ -98,6 +99,11 @@ public class App extends JFrame {
         telapartidas.setVisible(false);
         layeredPane.add(telapartidas, JLayeredPane.DEFAULT_LAYER);
 
+        telaBiblioteca = new TelaBiblioteca();
+        telaBiblioteca.setBounds(70, 0, larguraTela - 70, alturaTela);
+        telaBiblioteca.setVisible(false);
+        layeredPane.add(telaBiblioteca, JLayeredPane.DEFAULT_LAYER);
+
         telaAutoatendimento = new TelaAutoatendimento(telaRecargas, null);
         telaAutoatendimento.setBounds(0, 0, larguraTela, alturaTela);
         telaAutoatendimento.setVisible(false);
@@ -123,6 +129,7 @@ public class App extends JFrame {
                 { "Recargas", "botao recarga.png" },
                 { "Prêmios", "botao premio.png" },
                 { "Funcionários", "botao funcionario.png" },
+                { "Biblioteca", "botao biblioteca.png" },
                 { "Sair", "botao saida.png" }
         };
 
@@ -132,6 +139,10 @@ public class App extends JFrame {
             String imagem = btn[1];
 
             if (texto.equals("Funcionários") && !Sessao.isManagerMaster()) {
+                continue;
+            }
+            // Biblioteca aparece só para funcionários com cargo "bibliotecário"
+            if (texto.equals("Biblioteca") && !Sessao.isBibliotecario()) {
                 continue;
             }
 
@@ -163,6 +174,14 @@ public class App extends JFrame {
                     }
                     telaFuncionarios.recarregar();
                     mostrarTela(telaFuncionarios);
+                } else if (texto.equalsIgnoreCase("Biblioteca")) {
+                    if (!Sessao.isBibliotecario()) {
+                        JOptionPane.showMessageDialog(this, "Apenas funcionários com cargo bibliotecário podem acessar a Biblioteca.",
+                                "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+                    telaBiblioteca.recarregar();
+                    mostrarTela(telaBiblioteca);
                 } else if (texto.equalsIgnoreCase("Início")) {
                     telaDashboard.recarregar();
                     mostrarTela(telaDashboard);
@@ -197,6 +216,7 @@ public class App extends JFrame {
                 telaRecargas.setBounds(70, 0, w - 70, h);
                 telaPremios.setBounds(70, 0, w - 70, h);
                 telapartidas.setBounds(70, 0, w - 70, h);
+                telaBiblioteca.setBounds(70, 0, w - 70, h);
                 if (telaAutoatendimento != null) {
                     telaAutoatendimento.setBounds(0, 0, w, h);
                 }
@@ -217,6 +237,7 @@ public class App extends JFrame {
         telaRecargas.setVisible(alvo == telaRecargas);
         telaPremios.setVisible(alvo == telaPremios);
         telapartidas.setVisible(alvo == telapartidas);
+        telaBiblioteca.setVisible(alvo == telaBiblioteca);
         telaDashboard.setVisible(alvo == telaDashboard);
 
         getContentPane().revalidate();
