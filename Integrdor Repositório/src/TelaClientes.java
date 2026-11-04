@@ -171,9 +171,13 @@ public class TelaClientes extends JPanel {
             }
         });
 
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirSelecionado());
+
         JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         painelBotoesTopo.setOpaque(false);
         painelBotoesTopo.add(btnEditar);
+        painelBotoesTopo.add(btnExcluir);
         painelBotoesTopo.add(btnNovoCliente);
         painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
 
@@ -621,6 +625,27 @@ public class TelaClientes extends JPanel {
             return -1;
         }
         return tabela.convertRowIndexToModel(viewRow);
+    }
+
+    /** Exclui o cliente selecionado (só se não tiver cartões ou outros registros ligados a ele). */
+    private void excluirSelecionado() {
+        int linha = linhaSelecionadaNoModelo();
+        if (linha < 0) {
+            return;
+        }
+        String nome = String.valueOf(modeloTabela.getValueAt(linha, 1)).trim();
+        if (!Exclusao.confirmar(this, "o cliente " + nome)) {
+            return;
+        }
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM clientes WHERE ID_Cliente = ?")) {
+            ps.setLong(1, idDaLinha(linha));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        carregarClientes();
     }
 
     private JLabel criarLabel(String texto) {

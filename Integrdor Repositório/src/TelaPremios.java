@@ -96,9 +96,13 @@ public class TelaPremios extends JPanel {
             if (linha >= 0) abrirModal(linha);
         });
 
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirSelecionado());
+
         JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         painelBotoes.setOpaque(false);
         painelBotoes.add(btnEditar);
+        painelBotoes.add(btnExcluir);
         painelBotoes.add(btnNovo);
 
         painelAcoes.add(painelBusca, BorderLayout.WEST);
@@ -208,6 +212,27 @@ public class TelaPremios extends JPanel {
         }
         int n = tabela.getRowCount();
         lblTotal.setText("Total: " + n + (n == 1 ? " prêmio" : " prêmios"));
+    }
+
+    /** Exclui o prêmio selecionado (só se ele não tiver resgates ligados). */
+    private void excluirSelecionado() {
+        int linha = linhaSelecionada();
+        if (linha < 0) {
+            return;
+        }
+        String nome = String.valueOf(modeloTabela.getValueAt(linha, 1));
+        if (!Exclusao.confirmar(this, "o prêmio " + nome)) {
+            return;
+        }
+        try (Connection con = Conexao.conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM premios WHERE ID_Premio = ?")) {
+            ps.setLong(1, Long.parseLong(String.valueOf(modeloTabela.getValueAt(linha, 0)).trim()));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        carregarPremios();
     }
 
     private int linhaSelecionada() {

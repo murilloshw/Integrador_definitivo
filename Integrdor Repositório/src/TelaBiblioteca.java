@@ -174,7 +174,29 @@ public class TelaBiblioteca extends JPanel {
             if (linha != null) abrirFormLivro(linha);
         });
 
-        return abaLivros.montar(montarBarra(abaLivros, btnEditar, btnNovo));
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> {
+            Object[] linha = abaLivros.linhaSelecionada();
+            if (linha != null) excluirLivro(linha);
+        });
+
+        return abaLivros.montar(montarBarra(abaLivros, btnExcluir, btnEditar, btnNovo));
+    }
+
+    /** Exclui um livro (só se não houver fichas ou doações ligadas a ele). */
+    private void excluirLivro(Object[] linha) {
+        if (!Exclusao.confirmar(this, "o livro " + linha[1])) {
+            return;
+        }
+        try (Connection con = Conexao.conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM livros WHERE ID_Livro = ?")) {
+            ps.setLong(1, idDe(linha[0]));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        abaLivros.carregar();
     }
 
     private JPanel montarAbaFichas() {

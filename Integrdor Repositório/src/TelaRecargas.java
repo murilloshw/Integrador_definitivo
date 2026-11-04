@@ -28,6 +28,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.text.NumberFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -589,7 +591,8 @@ public class TelaRecargas extends JPanel {
                 }
                 long creditos = valor.multiply(BigDecimal.valueOf(CREDITOS_POR_REAL))
                         .setScale(0, RoundingMode.HALF_UP).longValue();
-                Timestamp ts = rs.getTimestamp("data_hora");
+                // Lido como horário "de parede" (sem conversão de fuso): é exatamente o que foi gravado.
+                LocalDateTime dataHora = rs.getObject("data_hora", LocalDateTime.class);
 
                 linhas.add(new Object[] {
                         String.format("%03d", rs.getLong("id_recarga")),
@@ -598,7 +601,7 @@ public class TelaRecargas extends JPanel {
                         MOEDA.format(valor),
                         creditos,
                         rs.getString("forma"),
-                        ts != null ? ts.toLocalDateTime().format(DATA_HORA) : ""
+                        dataHora != null ? dataHora.format(DATA_HORA) : ""
                 });
             }
         }
@@ -751,8 +754,8 @@ public class TelaRecargas extends JPanel {
 
                 // 2) registra a recarga
                 try (PreparedStatement ps = con.prepareStatement(
-                        "INSERT INTO recargas (`ID_Cartão`, `ID_Funcionário`, Valor, Forma_Pagamento) "
-                                + "VALUES (?, ?, ?, ?)")) {
+                        "INSERT INTO recargas (`ID_Cartão`, `ID_Funcionário`, Valor, Forma_Pagamento, Data_Hora) "
+                                + "VALUES (?, ?, ?, ?, ?)")) {
                     ps.setLong(1, idCartao);
                     if (idFuncionario == null) {
                         ps.setNull(2, java.sql.Types.VARCHAR); // autoatendimento: sem funcionário
@@ -761,6 +764,10 @@ public class TelaRecargas extends JPanel {
                     }
                     ps.setBigDecimal(3, valor);
                     ps.setString(4, forma);
+                    // Horário REAL do momento da recarga (fuso do computador, ex.: Brasília).
+                    // Sem isto o banco gravava o relógio do servidor (UTC) via DEFAULT CURRENT_TIMESTAMP.
+                    // setObject(LocalDateTime) grava o horário local como está, sem converter o fuso.
+                    ps.setObject(5, LocalDateTime.now(ZoneId.of("America/Sao_Paulo")).withNano(0));
                     ps.executeUpdate();
                 }
 
@@ -823,7 +830,11 @@ public class TelaRecargas extends JPanel {
 
         JPanel botoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         botoes.setOpaque(false);
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirFormaSelecionada());
+
         botoes.add(btnEditar);
+        botoes.add(btnExcluir);
         botoes.add(btnNova);
         acoes.add(botoes, BorderLayout.EAST);
 
@@ -843,6 +854,30 @@ public class TelaRecargas extends JPanel {
         cardTabelaFormas = criarCardTabela(tabelaFormas, ghostFormas);
         painel.add(cardTabelaFormas, BorderLayout.CENTER);
         return painel;
+    }
+
+    /** Exclui a forma de pagamento selecionada. As recargas antigas guardam o nome da forma, então não há vínculo que impeça. */
+    private void excluirFormaSelecionada() {
+        int linhaVisual = tabelaFormas.getSelectedRow();
+        if (linhaVisual < 0) {
+            JOptionPane.showMessageDialog(this, "Selecione uma forma de pagamento na tabela.",
+                    "Excluir", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int m = tabelaFormas.convertRowIndexToModel(linhaVisual);
+        String nome = String.valueOf(modeloFormas.getValueAt(m, 1));
+        if (!Exclusao.confirmar(this, "a forma de pagamento " + nome)) {
+            return;
+        }
+        try (Connection con = Conexao.conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM formas_pagamento WHERE ID_Forma = ?")) {
+            ps.setLong(1, Long.parseLong(String.valueOf(modeloFormas.getValueAt(m, 0)).trim()));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        carregar(false, true);
     }
 
     private List<Object[]> consultarFormas(Connection con) throws SQLException {

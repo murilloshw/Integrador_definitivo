@@ -173,9 +173,13 @@ public class TelaMaquinas extends JPanel {
             }
         });
 
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirSelecionado());
+
         JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         painelBotoesTopo.setOpaque(false);
         painelBotoesTopo.add(btnEditar);
+        painelBotoesTopo.add(btnExcluir);
         painelBotoesTopo.add(btnNovaMaquina);
         painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
 
@@ -387,6 +391,26 @@ public class TelaMaquinas extends JPanel {
     }
 
     /** Lê o ID real (numérico) da linha do modelo: "007" -> 7. */
+    /** Exclui a máquina selecionada (só se não tiver partidas ligadas a ela). */
+    private void excluirSelecionado() {
+        int linha = linhaSelecionadaNoModelo();
+        if (linha < 0) {
+            return;
+        }
+        if (!Exclusao.confirmar(this, "a máquina " + String.valueOf(modeloTabela.getValueAt(linha, 1)).trim())) {
+            return;
+        }
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM `máquinas` WHERE `ID_Máquina` = ?")) {
+            ps.setLong(1, idDaLinha(linha));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        carregarMaquinas();
+    }
+
     private long idDaLinha(int linhaModelo) {
         return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
     }

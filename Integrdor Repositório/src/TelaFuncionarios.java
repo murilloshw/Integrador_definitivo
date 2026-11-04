@@ -98,9 +98,13 @@ public class TelaFuncionarios extends JPanel {
             if (f != null) abrirModal(f);
         });
 
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirSelecionado());
+
         JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         painelBotoes.setOpaque(false);
         painelBotoes.add(btnEditar);
+        painelBotoes.add(btnExcluir);
         painelBotoes.add(btnNovo);
 
         painelAcoes.add(painelBusca, BorderLayout.WEST);
@@ -258,6 +262,51 @@ public class TelaFuncionarios extends JPanel {
             atualizarTotal();
             JOptionPane.showMessageDialog(this, "Erro ao carregar funcionários:\n" + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
         });
+    }
+
+    /**
+     * Exclui o funcionário selecionado. Não deixa apagar o próprio usuário logado,
+     * e falha se ele já tiver recargas, resgates ou outros registros feitos por ele.
+     */
+    private void excluirSelecionado() {
+        Funcionario f = funcionarioSelecionado();
+        if (f == null) {
+            return;
+        }
+        if (Sessao.getLogado() != null
+                && Long.parseLong(f.getId().trim()) == Long.parseLong(Sessao.getLogado().getId().trim())) {
+            JOptionPane.showMessageDialog(this, "Você não pode excluir o funcionário que está logado.",
+                    "Exclusão não permitida", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (!Exclusao.confirmar(this, "o funcionário " + f.getNome())) {
+            return;
+        }
+        long id = Long.parseLong(f.getId().trim());
+        try (Connection con = conectar()) {
+            con.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = con.prepareStatement(
+                        "DELETE FROM funcionários WHERE ID_Funcionário = ?")) {
+                    ps.setLong(1, id);
+                    ps.executeUpdate();
+                }
+                // Apaga também a senha guardada desse login (só depois de o funcionário sair com sucesso)
+                try (PreparedStatement ps = con.prepareStatement(
+                        "DELETE FROM Seguranca_Senhas WHERE Usuario = ?")) {
+                    ps.setString(1, f.getUsuario());
+                    ps.executeUpdate();
+                }
+                con.commit();
+            } catch (SQLException ex) {
+                con.rollback();
+                throw ex;
+            }
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        recarregar();
     }
 
     private Funcionario funcionarioSelecionado() {

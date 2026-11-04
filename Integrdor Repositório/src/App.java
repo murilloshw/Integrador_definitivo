@@ -106,10 +106,23 @@ public class App extends JFrame {
         telaBiblioteca.setVisible(false);
         layeredPane.add(telaBiblioteca, JLayeredPane.DEFAULT_LAYER);
 
-        telaAutoatendimento = new TelaAutoatendimento(telaRecargas, null);
+        // Quando um administrador confirma a saída, a tela é fechada (antes era null -> NullPointerException)
+        telaAutoatendimento = new TelaAutoatendimento(telaRecargas, this::fecharAutoatendimento);
         telaAutoatendimento.setBounds(0, 0, larguraTela, alturaTela);
         telaAutoatendimento.setVisible(false);
         layeredPane.add(telaAutoatendimento, JLayeredPane.POPUP_LAYER);
+
+        // Botão "Autoatendimento" da tela de Recargas: nunca tinha sido ligado a nada, por isso não abria.
+        // Só funcionários com permissão administrativa podem abrir o autoatendimento (o mesmo que sair dele).
+        telaRecargas.setAcaoAutoatendimento(() -> {
+            if (!Sessao.isManagerMaster()) {
+                JOptionPane.showMessageDialog(this,
+                        "Apenas funcionários com permissão administrativa podem abrir o autoatendimento.",
+                        "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            abrirAutoatendimento();
+        });
 
         // Sidebar Fixa
         JPanel sidebar = new JPanel();

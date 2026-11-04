@@ -176,9 +176,13 @@ public class TelaCartao extends JPanel {
             }
         });
 
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirSelecionado());
+
         JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         painelBotoesTopo.setOpaque(false);
         painelBotoesTopo.add(btnEditar);
+        painelBotoesTopo.add(btnExcluir);
         painelBotoesTopo.add(btnNovoCartao);
         painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
 
@@ -489,6 +493,26 @@ public class TelaCartao extends JPanel {
     }
 
     /** Lê o ID real (numérico) da linha do modelo: "003" -> 3. */
+    /** Exclui o cartão selecionado (só se não tiver recargas, partidas ou resgates ligados a ele). */
+    private void excluirSelecionado() {
+        int linha = linhaSelecionadaNoModelo();
+        if (linha < 0) {
+            return;
+        }
+        if (!Exclusao.confirmar(this, "o cartão " + String.valueOf(modeloTabela.getValueAt(linha, 0)))) {
+            return;
+        }
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM `cartões` WHERE `ID_Cartão` = ?")) {
+            ps.setLong(1, idDaLinha(linha));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        carregarCartoes(true);
+    }
+
     private long idDaLinha(int linhaModelo) {
         return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
     }

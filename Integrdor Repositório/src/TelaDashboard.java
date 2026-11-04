@@ -267,6 +267,8 @@ public class TelaDashboard extends JPanel {
         LocalDate inicioGrafico = hoje.minusDays(DIAS_GRAFICO - 1);
 
         String diaRecarga = diaLocal("Data_Hora", minutosFuso);
+        // Recargas passam a ser gravadas já no horário local (TelaRecargas), então o dia é só DATE(Data_Hora).
+        String diaRecargaLocal = "DATE(Data_Hora)";
         String diaPartida = diaLocal("p.Data_Hora", minutosFuso);
         // Partida com 0 créditos em máquina paga é tentativa sem saldo (ver TelaPartidas).
         String partidaValida = "NOT (p.`Créditos_Gastos` = 0 AND COALESCE(m.Valor_Partida, 0) > 0)";
@@ -284,13 +286,13 @@ public class TelaDashboard extends JPanel {
                 + "(SELECT COUNT(*) FROM premios WHERE Ativo = TRUE AND Qtd_Disponivel <= " + LIMITE_ESTOQUE_BAIXO + ") AS estoque_baixo, "
                 + "(SELECT COUNT(*) " + partidasComMaquina + "WHERE " + partidaValida + " AND " + diaPartida + " = ?) AS partidas, "
                 + "(SELECT COUNT(DISTINCT p.`ID_Cartão`) " + partidasComMaquina + "WHERE " + partidaValida + " AND " + diaPartida + " = ?) AS jogadores, "
-                + "(SELECT COALESCE(SUM(Valor), 0) FROM recargas WHERE " + diaRecarga + " = ?) AS recargas_valor, "
-                + "(SELECT COUNT(*) FROM recargas WHERE " + diaRecarga + " = ?) AS recargas_qtd, "
+                + "(SELECT COALESCE(SUM(Valor), 0) FROM recargas WHERE " + diaRecargaLocal + " = ?) AS recargas_valor, "
+                + "(SELECT COUNT(*) FROM recargas WHERE " + diaRecargaLocal + " = ?) AS recargas_qtd, "
                 + "(SELECT COUNT(*) FROM resgates WHERE " + diaRecarga + " = ?) AS resgates, "
                 + "(SELECT COALESCE(SUM(Pontos_Gastos), 0) FROM resgates WHERE " + diaRecarga + " = ?) AS resgates_pontos";
 
-        String sqlRecargas = "SELECT " + diaRecarga + " AS dia, SUM(Valor) AS total FROM recargas "
-                + "WHERE " + diaRecarga + " >= ? GROUP BY dia";
+        String sqlRecargas = "SELECT " + diaRecargaLocal + " AS dia, SUM(Valor) AS total FROM recargas "
+                + "WHERE " + diaRecargaLocal + " >= ? GROUP BY dia";
 
         String sqlMaquinas = "SELECT m.Nome AS nome, COUNT(*) AS qtd FROM partidas p "
                 + "JOIN `máquinas` m ON m.`ID_Máquina` = p.`ID_Máquina` "
