@@ -1,8 +1,13 @@
-
 import java.awt.*;
 import java.awt.geom.*;
 import javax.swing.*;
 
+/**
+ * Tela de "Carregando banco de dados..." (ícone de banco + bolinhas girando).
+ *
+ * ATENÇÃO: atualmente NENHUMA tela usa esta classe — o carregamento pós-login é
+ * feito pelo CarregandoOverlay dentro de TelaLogin. O main daqui só abre o login.
+ */
 public class telacarregamento extends JFrame {
 
     private int animacao = 0;

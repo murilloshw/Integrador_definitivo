@@ -11,6 +11,13 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
+/**
+ * Botão da barra lateral do App.
+ *
+ * Fechado, mostra só o ícone (70px). Ao passar o mouse, "estica" com uma animação
+ * até mostrar o texto ao lado do ícone; ao tirar o mouse, encolhe de volta.
+ * O clique executa a ação definida em setAcaoClique().
+ */
 public class PainelExtensor extends JPanel {
 
     private final int larguraFechado;
@@ -89,6 +96,7 @@ public class PainelExtensor extends JPanel {
         this.acaoClique = acao;
     }
 
+    /** A cada 10ms aumenta (ou diminui) a largura em 10px até chegar no tamanho final. */
     private void iniciarAnimacao(boolean expandir) {
         if (timerAnimacao != null && timerAnimacao.isRunning()) {
             timerAnimacao.stop();
@@ -120,7 +128,7 @@ public class PainelExtensor extends JPanel {
             }
         });
 
-        timerAnimacao.start() ; 
+        timerAnimacao.start();
     }
 
     private ImageIcon carregarIcone(String nomeImagem) {

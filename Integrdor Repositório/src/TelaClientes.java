@@ -26,7 +26,6 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JFormattedTextField;
-import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -41,47 +40,124 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import javax.swing.text.MaskFormatter;
 
+/**
+ * Tela de CLIENTES: lista todos os clientes do banco numa tabela com busca,
+ * e permite cadastrar, editar e excluir clientes.
+ *
+ * Também é usada pela TelaCartao, que pergunta o nome de um cliente pelo ID
+ * (buscarNomePorId).
+ */
 public class TelaClientes extends JPanel {
 
+    // =========================================================================
+    // CONSTANTES
+    // Formato de data e texto de dica do campo de busca.
+    // =========================================================================
+
+    /** Data na tela: dd/MM/aaaa. STRICT recusa datas inexistentes (ex.: 31/02/2000). */
+    private static final DateTimeFormatter FORMATO_DATA = DateTimeFormatter
+            .ofPattern("dd/MM/uuuu")
+            .withResolverStyle(ResolverStyle.STRICT);
+
+    private static final String DICA_BUSCA = "Buscar por nome, CPF ou telefone...";
+
+    // =========================================================================
+    // CAMPOS
+    // Componentes da tela que são usados em mais de um método.
+    // =========================================================================
     private JTable tabela;
     private DefaultTableModel modeloTabela;
     private TableRowSorter<DefaultTableModel> sorter;
     private JTextField txtBuscar;
     private JLabel lblTotalClientes;
 
-    // Formato de data usado na tela (dd/MM/aaaa). STRICT recusa datas inexistentes (ex.: 31/02/2000)
-    private static final DateTimeFormatter FORMATO_DATA = DateTimeFormatter
-            .ofPattern("dd/MM/uuuu")
-            .withResolverStyle(ResolverStyle.STRICT);
+    // =========================================================================
+    // CONSTRUTOR
+    // Monta as três partes da tela (topo, tabela, rodapé) e carrega os dados.
+    // =========================================================================
+    public TelaClientes() {
+        setBackground(new Color(2, 12, 27)); // fundo azul marinho escuro
+        setLayout(new BorderLayout(15, 12));
+        setBorder(BorderFactory.createEmptyBorder(20, 25, 15, 25));
 
-    // -----------------------------------------------------------------
-    // CONEXÃO COM O BANCO
-    // Único ponto que depende da sua classe de conexão.
-    // Se o nome da sua classe/método for outro, troque só esta linha.
-    // -----------------------------------------------------------------
-    private Connection conectar() throws SQLException {
-        return Conexao.conectar();
+        add(criarTopo(), BorderLayout.NORTH);
+        add(criarTabela(), BorderLayout.CENTER);
+        add(criarRodape(), BorderLayout.SOUTH);
+
+        carregarClientes(); // também atualiza o "Total: X clientes"
     }
 
-    public TelaClientes() {
-        setBackground(new Color(2, 12, 27)); // Fundo azul marinho escuro
-        setLayout(new BorderLayout(15, 12));
-        setBorder(BorderFactory.createEmptyBorder(20, 25, 15, 25)); // Margens ajustadas para não cortar o rodapé
+    // =========================================================================
+    // MÉTODOS PÚBLICOS
+    // Usados por outras telas (App e TelaCartao).
+    // =========================================================================
 
-        // -----------------------------------------------------------------
-        // 1. TOPO: Título, Busca e Botão "+ Novo Cliente"
-        // -----------------------------------------------------------------
-        JPanel painelTopoGeral = new JPanel(new BorderLayout(0, 15));
-        painelTopoGeral.setOpaque(false);
+    /** Retorna o nome do cliente com o ID informado (ex.: "001" ou "1") ou null se não existir. */
+    public String buscarNomePorId(String id) {
+        long idProcurado;
+        try {
+            idProcurado = Long.parseLong(id.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        for (int i = 0; i < modeloTabela.getRowCount(); i++) {
+            if (idDaLinha(i) == idProcurado) {
+                return String.valueOf(modeloTabela.getValueAt(i, 1));
+            }
+        }
+        return null;
+    }
 
+    /** Recarrega a tabela a partir do banco. */
+    public void recarregar() {
+        carregarClientes();
+    }
+
+    // =========================================================================
+    // MONTAGEM DA INTERFACE
+    // Topo (título, busca e botões), tabela de clientes e rodapé com o total.
+    // =========================================================================
+
+    /** Topo: título "Clientes", campo de busca e botões Editar / Excluir / + Novo Cliente. */
+    private JPanel criarTopo() {
         JLabel lblTitulo = new JLabel("Clientes");
         lblTitulo.setFont(new Font("Segoe UI", Font.BOLD, 22));
         lblTitulo.setForeground(Color.WHITE);
 
+        JButton btnEditar = criarBotaoEditar();
+        btnEditar.addActionListener(e -> {
+            int linha = linhaSelecionadaNoModelo();
+            if (linha >= 0) {
+                abrirModal(linha);
+            }
+        });
+
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirSelecionado());
+
+        JButton btnNovoCliente = criarBotaoNovo();
+        btnNovoCliente.addActionListener(e -> abrirModal(-1));
+
+        JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        painelBotoesTopo.setOpaque(false);
+        painelBotoesTopo.add(btnEditar);
+        painelBotoesTopo.add(btnExcluir);
+        painelBotoesTopo.add(btnNovoCliente);
+
         JPanel painelAcoes = new JPanel(new BorderLayout(15, 0));
         painelAcoes.setOpaque(false);
+        painelAcoes.add(criarBusca(), BorderLayout.WEST);
+        painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
 
-        // Campo de Busca
+        JPanel painelTopo = new JPanel(new BorderLayout(0, 15));
+        painelTopo.setOpaque(false);
+        painelTopo.add(lblTitulo, BorderLayout.NORTH);
+        painelTopo.add(painelAcoes, BorderLayout.CENTER);
+        return painelTopo;
+    }
+
+    /** Campo de busca arredondado: filtra a tabela a cada tecla digitada. */
+    private JPanel criarBusca() {
         JPanel painelBusca = new JPanel(new BorderLayout(8, 0)) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -101,16 +177,17 @@ public class TelaClientes extends JPanel {
         JLabel lblLupa = new JLabel("🔍");
         lblLupa.setForeground(new Color(148, 163, 184));
 
-        txtBuscar = new JTextField("Buscar por nome, CPF ou telefone...");
+        txtBuscar = new JTextField(DICA_BUSCA);
         txtBuscar.setOpaque(false);
         txtBuscar.setForeground(new Color(100, 116, 139));
         txtBuscar.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         txtBuscar.setBorder(null);
 
+        // Texto de dica (placeholder): some ao clicar, volta se o campo ficar vazio
         txtBuscar.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
             public void focusGained(java.awt.event.FocusEvent evt) {
-                if (txtBuscar.getText().equals("Buscar por nome, CPF ou telefone...")) {
+                if (txtBuscar.getText().equals(DICA_BUSCA)) {
                     txtBuscar.setText("");
                     txtBuscar.setForeground(Color.WHITE);
                 }
@@ -120,15 +197,17 @@ public class TelaClientes extends JPanel {
             public void focusLost(java.awt.event.FocusEvent evt) {
                 if (txtBuscar.getText().isEmpty()) {
                     txtBuscar.setForeground(new Color(100, 116, 139));
-                    txtBuscar.setText("Buscar por nome, CPF ou telefone...");
+                    txtBuscar.setText(DICA_BUSCA);
                 }
             }
         });
+
+        // Filtro da tabela (ignora maiúsculas/minúsculas)
         txtBuscar.addKeyListener(new KeyAdapter() {
             @Override
             public void keyReleased(KeyEvent e) {
                 String texto = txtBuscar.getText();
-                if (texto.equals("Buscar por nome, CPF ou telefone...") || texto.trim().isEmpty()) {
+                if (texto.equals(DICA_BUSCA) || texto.trim().isEmpty()) {
                     sorter.setRowFilter(null);
                 } else {
                     // Pattern.quote evita erro se o usuário digitar caracteres como ( ) + . *
@@ -140,73 +219,15 @@ public class TelaClientes extends JPanel {
 
         painelBusca.add(lblLupa, BorderLayout.WEST);
         painelBusca.add(txtBuscar, BorderLayout.CENTER);
+        return painelBusca;
+    }
 
-        // Botão Novo Cliente
-        JButton btnNovoCliente = new JButton("+ Novo Cliente") {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(14, 116, 233));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-        btnNovoCliente.setPreferredSize(new Dimension(140, 38));
-        btnNovoCliente.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        btnNovoCliente.setForeground(Color.WHITE);
-        btnNovoCliente.setFocusPainted(false);
-        btnNovoCliente.setContentAreaFilled(false);
-        btnNovoCliente.setBorderPainted(false);
-        btnNovoCliente.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnNovoCliente.addActionListener(e -> abrirModal(-1));
-
-        painelAcoes.add(painelBusca, BorderLayout.WEST);
-        JButton btnEditar = criarBotaoEditar();
-        btnEditar.addActionListener(e -> {
-            int linha = linhaSelecionadaNoModelo();
-            if (linha >= 0) {
-                abrirModal(linha);
-            }
-        });
-
-        JButton btnExcluir = Exclusao.criarBotao();
-        btnExcluir.addActionListener(e -> excluirSelecionado());
-
-        JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        painelBotoesTopo.setOpaque(false);
-        painelBotoesTopo.add(btnEditar);
-        painelBotoesTopo.add(btnExcluir);
-        painelBotoesTopo.add(btnNovoCliente);
-        painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
-
-        painelTopoGeral.add(lblTitulo, BorderLayout.NORTH);
-        painelTopoGeral.add(painelAcoes, BorderLayout.CENTER);
-
-        add(painelTopoGeral, BorderLayout.NORTH);
-
-        // -----------------------------------------------------------------
-        // 2. TABELA DE CLIENTES (Design Suave)
-        // -----------------------------------------------------------------
-        JPanel painelCardTabela = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(10, 22, 40));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
-                g2.setColor(new Color(23, 42, 69));
-                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
-                g2.dispose();
-            }
-        };
-        painelCardTabela.setOpaque(false);
-        painelCardTabela.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
-
-        // As duas últimas colunas ficam escondidas na tabela; guardam os dados usados na edição
+    /**
+     * Tabela de clientes dentro de um card arredondado.
+     * O modelo tem 6 colunas; Nascimento e E-mail ficam escondidas (só usadas na edição).
+     */
+    private JPanel criarTabela() {
         String[] colunas = { "ID ", "Nome ", "CPF ", "Telefone ", "Nascimento", "E-mail" };
-
         modeloTabela = new DefaultTableModel(colunas, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -221,11 +242,9 @@ public class TelaClientes extends JPanel {
         tabela.setSelectionForeground(Color.WHITE);
         sorter = new TableRowSorter<>(modeloTabela);
         tabela.setRowSorter(sorter);
+        tabela.getTableHeader().setReorderingAllowed(false); // impede arrastar colunas
 
-        // IMPEDE QUE O USUÁRIO ARRASTE AS COLUNAS
-        tabela.getTableHeader().setReorderingAllowed(false);
-
-        // Estilização da tabela
+        // Cores e fontes
         tabela.setBackground(new Color(10, 22, 40));
         tabela.setForeground(new Color(226, 232, 240));
         tabela.setGridColor(new Color(18, 35, 60));
@@ -237,81 +256,58 @@ public class TelaClientes extends JPanel {
         tabela.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
         tabela.getTableHeader().setPreferredSize(new Dimension(0, 40));
 
-        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
-        centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
-        centerRenderer.setBackground(new Color(10, 22, 40));
-        centerRenderer.setForeground(new Color(186, 230, 253));
-
-        DefaultTableCellRenderer leftRenderer = new DefaultTableCellRenderer();
-        leftRenderer.setHorizontalAlignment(SwingConstants.LEFT);
-        leftRenderer.setBackground(new Color(10, 22, 40));
-        leftRenderer.setForeground(Color.WHITE);
-
-        tabela.getColumnModel().getColumn(0).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(1).setCellRenderer(leftRenderer);
-        tabela.getColumnModel().getColumn(2).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(3).setCellRenderer(centerRenderer);
+        // Alinhamento: ID, CPF e Telefone centralizados; Nome à esquerda
+        DefaultTableCellRenderer centro = criarRenderer(SwingConstants.CENTER, new Color(186, 230, 253));
+        DefaultTableCellRenderer esquerda = criarRenderer(SwingConstants.LEFT, Color.WHITE);
+        tabela.getColumnModel().getColumn(0).setCellRenderer(centro);
+        tabela.getColumnModel().getColumn(1).setCellRenderer(esquerda);
+        tabela.getColumnModel().getColumn(2).setCellRenderer(centro);
+        tabela.getColumnModel().getColumn(3).setCellRenderer(centro);
 
         JScrollPane scrollPane = new JScrollPane(tabela);
         scrollPane.setOpaque(false);
         scrollPane.getViewport().setOpaque(false);
         scrollPane.setBorder(null);
 
-        painelCardTabela.add(scrollPane, BorderLayout.CENTER);
-        add(painelCardTabela, BorderLayout.CENTER);
+        JPanel card = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(10, 22, 40));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                g2.setColor(new Color(23, 42, 69));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
+                g2.dispose();
+            }
+        };
+        card.setOpaque(false);
+        card.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        card.add(scrollPane, BorderLayout.CENTER);
+        return card;
+    }
 
-        // -----------------------------------------------------------------
-        // 3. RODAPÉ (PAGINAÇÃO E TOTAL CORRIGIDOS)
-        // -----------------------------------------------------------------
-        JPanel painelRodape = new JPanel(new BorderLayout());
-        painelRodape.setOpaque(false);
-        painelRodape.setPreferredSize(new Dimension(0, 35));
-
+    /** Rodapé: mostra "Total: X clientes". */
+    private JPanel criarRodape() {
         lblTotalClientes = new JLabel();
         lblTotalClientes.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         lblTotalClientes.setForeground(new Color(148, 163, 184));
 
-        JPanel painelPaginacao = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        painelPaginacao.setOpaque(false);
-
+        JPanel painelRodape = new JPanel(new BorderLayout());
+        painelRodape.setOpaque(false);
+        painelRodape.setPreferredSize(new Dimension(0, 35));
         painelRodape.add(lblTotalClientes, BorderLayout.WEST);
-        painelRodape.add(painelPaginacao, BorderLayout.EAST);
-
-        add(painelRodape, BorderLayout.SOUTH);
-
-        // Carrega os clientes do banco (também atualiza o "Total: X clientes")
-        carregarClientes();
+        return painelRodape;
     }
 
-    /** Retorna o nome do cliente com o ID informado (ex.: "001" ou "1") ou null se não existir. */
-    public String buscarNomePorId(String id) {
-        long idProcurado;
-        try {
-            idProcurado = Long.parseLong(id.trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-        for (int i = 0; i < modeloTabela.getRowCount(); i++) {
-            if (idDaLinha(i) == idProcurado) {
-                return String.valueOf(modeloTabela.getValueAt(i, 1));
-            }
-        }
-        return null;
-    }
+    // =========================================================================
+    // BANCO DE DADOS
+    // Consultas SQL da tabela "clientes": listar, inserir e atualizar.
+    // =========================================================================
 
-    /** Recarrega a tabela a partir do banco. Pode ser chamado por outras telas. */
-    public void recarregar() {
-        carregarClientes();
+    private Connection conectar() throws SQLException {
+        return Conexao.conectar();
     }
-
-    private void atualizarTotal() {
-        int count = tabela.getRowCount();
-        lblTotalClientes.setText("Total: " + count + " clientes");
-    }
-
-    // -----------------------------------------------------------------
-    // ACESSO AO BANCO DE DADOS
-    // -----------------------------------------------------------------
 
     /** SELECT de todos os clientes e preenchimento da tabela. */
     private void carregarClientes() {
@@ -408,39 +404,12 @@ public class TelaClientes extends JPanel {
         return "Erro ao salvar no banco de dados:\n" + ex.getMessage();
     }
 
-    // -----------------------------------------------------------------
-    // CONVERSÕES (tela <-> banco)
-    // -----------------------------------------------------------------
+    // =========================================================================
+    // AÇÕES: CADASTRAR / EDITAR / EXCLUIR
+    // Janela (modal) de cadastro e edição, com validações, e exclusão.
+    // =========================================================================
 
-    /** Remove tudo que não for dígito: "123.456.789-09" -> "12345678909". */
-    private String apenasDigitos(String texto) {
-        return texto == null ? "" : texto.replaceAll("\\D", "");
-    }
-
-    /** 12345678909 -> "123.456.789-09" (completa com zeros à esquerda até 11 dígitos). */
-    private String formatarCpf(long cpf) {
-        String d = String.format("%011d", cpf);
-        return d.substring(0, 3) + "." + d.substring(3, 6) + "." + d.substring(6, 9) + "-" + d.substring(9);
-    }
-
-    /** 5548999998888 -> "+55 48 99999-8888". Se não tiver 13 dígitos, devolve o número puro. */
-    private String formatarTelefone(long telefone) {
-        String d = String.valueOf(telefone);
-        if (d.length() != 13) {
-            return d;
-        }
-        return "+" + d.substring(0, 2) + " " + d.substring(2, 4) + " " + d.substring(4, 9) + "-" + d.substring(9);
-    }
-
-    /** Lê o ID real (numérico) da linha do modelo: "003" -> 3. */
-    private long idDaLinha(int linhaModelo) {
-        return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
-    }
-
-    // -----------------------------------------------------------------
-    // 4. MODAL DE CADASTRO COM JFORMATTEDTEXTFIELD
-    // -----------------------------------------------------------------
-    // linhaModelo < 0 => novo cadastro; senão edita a linha indicada
+    /** Abre o formulário. linhaModelo < 0 => novo cadastro; senão edita a linha indicada. */
     private void abrirModal(int linhaModelo) {
         boolean edicao = linhaModelo >= 0;
         java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
@@ -450,10 +419,7 @@ public class TelaClientes extends JPanel {
         modal.setLocationRelativeTo(parentWindow);
         modal.setLayout(new BorderLayout());
 
-        JPanel painelForm = new JPanel(new GridLayout(10, 1, 2, 2));
-        painelForm.setBackground(new Color(10, 22, 40));
-        painelForm.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 25));
-
+        // ---------- Campos do formulário ----------
         JTextField txtNome = criarCampoTexto();
         JFormattedTextField txtCPF = criarCampoFormatado("###.###.###-##");
         JFormattedTextField txtDataNasc = criarCampoFormatado("##/##/####");
@@ -468,6 +434,9 @@ public class TelaClientes extends JPanel {
             txtEmail.setText(String.valueOf(modeloTabela.getValueAt(linhaModelo, 5)));
         }
 
+        JPanel painelForm = new JPanel(new GridLayout(10, 1, 2, 2));
+        painelForm.setBackground(new Color(10, 22, 40));
+        painelForm.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 25));
         painelForm.add(criarLabel("Nome Completo:"));
         painelForm.add(txtNome);
         painelForm.add(criarLabel("CPF:"));
@@ -479,9 +448,7 @@ public class TelaClientes extends JPanel {
         painelForm.add(criarLabel("E-mail:"));
         painelForm.add(txtEmail);
 
-        JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
-        painelBotoes.setBackground(new Color(2, 12, 27));
-
+        // ---------- Botões ----------
         JButton btnCancelar = new JButton("Cancelar");
         btnCancelar.setBackground(new Color(71, 85, 105));
         btnCancelar.setForeground(Color.WHITE);
@@ -570,6 +537,8 @@ public class TelaClientes extends JPanel {
             modal.dispose();
         });
 
+        JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        painelBotoes.setBackground(new Color(2, 12, 27));
         painelBotoes.add(btnCancelar);
         painelBotoes.add(btnSalvar);
 
@@ -578,11 +547,105 @@ public class TelaClientes extends JPanel {
         modal.setVisible(true);
     }
 
+    /** Exclui o cliente selecionado (só se não tiver cartões ou outros registros ligados a ele). */
+    private void excluirSelecionado() {
+        int linha = linhaSelecionadaNoModelo();
+        if (linha < 0) {
+            return;
+        }
+        String nome = String.valueOf(modeloTabela.getValueAt(linha, 1)).trim();
+        if (!Exclusao.confirmar(this, "o cliente " + nome)) {
+            return;
+        }
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM clientes WHERE ID_Cliente = ?")) {
+            ps.setLong(1, idDaLinha(linha));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        carregarClientes();
+    }
+
+    // =========================================================================
+    // UTILITÁRIOS
+    // Conversões tela <-> banco, total, linha selecionada e avisos.
+    // =========================================================================
+
+    private void atualizarTotal() {
+        lblTotalClientes.setText("Total: " + tabela.getRowCount() + " clientes");
+    }
+
+    /** Remove tudo que não for dígito: "123.456.789-09" -> "12345678909". */
+    private String apenasDigitos(String texto) {
+        return texto == null ? "" : texto.replaceAll("\\D", "");
+    }
+
+    /** 12345678909 -> "123.456.789-09" (completa com zeros à esquerda até 11 dígitos). */
+    private String formatarCpf(long cpf) {
+        String d = String.format("%011d", cpf);
+        return d.substring(0, 3) + "." + d.substring(3, 6) + "." + d.substring(6, 9) + "-" + d.substring(9);
+    }
+
+    /** 5548999998888 -> "+55 48 99999-8888". Se não tiver 13 dígitos, devolve o número puro. */
+    private String formatarTelefone(long telefone) {
+        String d = String.valueOf(telefone);
+        if (d.length() != 13) {
+            return d;
+        }
+        return "+" + d.substring(0, 2) + " " + d.substring(2, 4) + " " + d.substring(4, 9) + "-" + d.substring(9);
+    }
+
+    /** Lê o ID real (numérico) da linha do modelo: "003" -> 3. */
+    private long idDaLinha(int linhaModelo) {
+        return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
+    }
+
+    /** Linha selecionada convertida para o índice do modelo (considera busca/ordenação); -1 se nenhuma. */
+    private int linhaSelecionadaNoModelo() {
+        int viewRow = tabela.getSelectedRow();
+        if (viewRow < 0) {
+            JOptionPane.showMessageDialog(this, "Selecione uma linha da tabela para editar.", "Aviso",
+                    JOptionPane.WARNING_MESSAGE);
+            return -1;
+        }
+        return tabela.convertRowIndexToModel(viewRow);
+    }
+
     private void aviso(JDialog modal, String mensagem) {
         JOptionPane.showMessageDialog(modal, mensagem, "Aviso", JOptionPane.WARNING_MESSAGE);
     }
 
-    // Botão de lápis azul (ícone desenhado em código, sem depender de imagem/fonte)
+    // =========================================================================
+    // COMPONENTES VISUAIS
+    // Fábricas de botões, rótulos, campos e renderizadores no estilo da tela.
+    // =========================================================================
+
+    /** Botão azul arredondado "+ Novo Cliente". */
+    private JButton criarBotaoNovo() {
+        JButton btn = new JButton("+ Novo Cliente") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(14, 116, 233));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        btn.setPreferredSize(new Dimension(140, 38));
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btn.setForeground(Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+
+    /** Botão quadrado com um lápis azul (ícone desenhado em código, sem imagem). */
     private JButton criarBotaoEditar() {
         JButton btn = new JButton() {
             @Override
@@ -617,35 +680,12 @@ public class TelaClientes extends JPanel {
         return btn;
     }
 
-    private int linhaSelecionadaNoModelo() {
-        int viewRow = tabela.getSelectedRow();
-        if (viewRow < 0) {
-            JOptionPane.showMessageDialog(this, "Selecione uma linha da tabela para editar.", "Aviso",
-                    JOptionPane.WARNING_MESSAGE);
-            return -1;
-        }
-        return tabela.convertRowIndexToModel(viewRow);
-    }
-
-    /** Exclui o cliente selecionado (só se não tiver cartões ou outros registros ligados a ele). */
-    private void excluirSelecionado() {
-        int linha = linhaSelecionadaNoModelo();
-        if (linha < 0) {
-            return;
-        }
-        String nome = String.valueOf(modeloTabela.getValueAt(linha, 1)).trim();
-        if (!Exclusao.confirmar(this, "o cliente " + nome)) {
-            return;
-        }
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement("DELETE FROM clientes WHERE ID_Cliente = ?")) {
-            ps.setLong(1, idDaLinha(linha));
-            ps.executeUpdate();
-        } catch (SQLException ex) {
-            Exclusao.erro(this, ex);
-            return;
-        }
-        carregarClientes();
+    private DefaultTableCellRenderer criarRenderer(int alinhamento, Color corTexto) {
+        DefaultTableCellRenderer r = new DefaultTableCellRenderer();
+        r.setHorizontalAlignment(alinhamento);
+        r.setBackground(new Color(10, 22, 40));
+        r.setForeground(corTexto);
+        return r;
     }
 
     private JLabel criarLabel(String texto) {
@@ -656,17 +696,10 @@ public class TelaClientes extends JPanel {
     }
 
     private JTextField criarCampoTexto() {
-        JTextField txt = new JTextField();
-        txt.setBackground(new Color(2, 12, 27));
-        txt.setForeground(Color.WHITE);
-        txt.setCaretColor(Color.WHITE);
-        txt.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        txt.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(30, 48, 80), 1),
-                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
-        return txt;
+        return estilizarCampo(new JTextField());
     }
 
+    /** Campo com máscara (ex.: "###.###.###-##"), que só aceita o formato indicado. */
     private JFormattedTextField criarCampoFormatado(String mascara) {
         JFormattedTextField txt;
         try {
@@ -676,7 +709,11 @@ public class TelaClientes extends JPanel {
         } catch (ParseException e) {
             txt = new JFormattedTextField();
         }
+        return estilizarCampo(txt);
+    }
 
+    /** Visual padrão dos campos do formulário (fundo escuro, borda azul). */
+    private <T extends JTextField> T estilizarCampo(T txt) {
         txt.setBackground(new Color(2, 12, 27));
         txt.setForeground(Color.WHITE);
         txt.setCaretColor(Color.WHITE);
@@ -686,5 +723,4 @@ public class TelaClientes extends JPanel {
                 BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         return txt;
     }
-
 }

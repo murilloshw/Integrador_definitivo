@@ -1,5 +1,4 @@
 import java.awt.AWTEvent;
-import java.awt.image.BufferedImage;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -8,9 +7,9 @@ import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.GridLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridLayout;
 import java.awt.LayoutManager;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
@@ -20,11 +19,13 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.SQLException;
 import java.text.NumberFormat;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Callable;
@@ -32,11 +33,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import javax.swing.AbstractAction;
 import javax.swing.AbstractButton;
-import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
-import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
@@ -55,26 +54,31 @@ import javax.swing.Timer;
  * Autoatendimento de recargas: a tela "presa" que o CLIENTE usa sozinho nos balcões.
  *
  * Fluxo (4 etapas):
- *   1. Cartão     -> cliente digita o número do cartão (teclado na tela ou teclado físico)
- *   2. Valor      -> escolhe R$ 10, 20, 30, 50 ou 100 (vê os créditos antes de pagar)
- *   3. Pagamento  -> escolhe Pix, débito ou crédito (lista vem do cadastro) e confirma
- *   4. Confirmação-> mostra o novo saldo e volta sozinha ao início
+ *   1. Cartão      -> cliente digita o número do cartão (teclado na tela ou teclado físico)
+ *   2. Valor       -> escolhe R$ 10, 20, 30, 50 ou 100 (vê os créditos antes de pagar)
+ *   3. Pagamento   -> escolhe Pix, débito ou crédito (lista vem do cadastro) e confirma
+ *   4. Confirmação -> mostra o novo saldo e volta sozinha ao início
  *
  * Regras de segurança e de uso:
  *   - Não há como sair pelo sistema: a barra lateral fica coberta e o ESC é ignorado.
- *   - Para sair é preciso o usuário e a senha de um funcionário cadastrado e ATIVO.
- *     Depois de 3 senhas erradas, a tentativa fica bloqueada por 30 segundos.
+ *   - Para sair é preciso o usuário e a senha de um funcionário ADMINISTRADOR e ATIVO.
+ *     Depois de 3 tentativas erradas, a saída fica bloqueada por 30 segundos.
  *   - Sem uso por 60 segundos, a tela volta ao início e limpa o que foi digitado
  *     (para o próximo cliente não ver o cartão do anterior).
  *   - A recarga é gravada SEM funcionário (campo vazio), conforme a documentação.
  *   - Mensagens para o cliente são simples; detalhes técnicos vão só para o console.
  *   - Botões grandes, sem foco de teclado (pensado para toque).
+ *
+ * Uso (pelo App): new TelaAutoatendimento(telaRecargas, aoSair); depois iniciar() ao abrir
+ * e encerrar() ao fechar. Todo acesso ao banco passa pelos métodos da TelaRecargas.
  */
 public class TelaAutoatendimento extends JPanel {
 
-    // ---------------------------------------------------------------
-    // REGRAS E CONSTANTES
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // REGRAS, CONSTANTES E CORES
+    // Valores de recarga, tempos de inatividade/bloqueio, nomes das etapas e a
+    // paleta de cores (a mesma das outras telas).
+    // =========================================================================
     private static final int[] VALORES_REAIS = { 10, 20, 30, 50, 100 };
     private static final int DIGITOS_CARTAO = 6;
     private static final int INATIVIDADE_MS = 60_000;
@@ -90,9 +94,6 @@ public class TelaAutoatendimento extends JPanel {
     private static final String MSG_INDISPONIVEL =
             "O sistema está indisponível no momento. Tente novamente ou procure a recepção.";
 
-    // ---------------------------------------------------------------
-    // CORES (mesma paleta das outras telas)
-    // ---------------------------------------------------------------
     private static final Color FUNDO = new Color(2, 12, 27);
     private static final Color CARD = new Color(10, 22, 40);
     private static final Color BORDA = new Color(23, 42, 69);
@@ -109,9 +110,10 @@ public class TelaAutoatendimento extends JPanel {
 
     private static final NumberFormat MOEDA = NumberFormat.getCurrencyInstance(new Locale("pt", "BR"));
 
-    // ---------------------------------------------------------------
-    // ESTADO
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // ESTADO DA TELA
+    // Componentes que mudam durante o uso e os dados da recarga em andamento.
+    // =========================================================================
     private final TelaRecargas recargas;
     private final Runnable aoSair;
 
@@ -154,7 +156,7 @@ public class TelaAutoatendimento extends JPanel {
     /** true enquanto a janela de saída de funcionário está aberta. */
     private boolean saidaAberta = false;
     private int tentativasSaidaFalhas = 0;
-    /** Até quando a saída fica bloqueada depois de muitas senhas erradas (ms desde 1970). */
+    /** Até quando a saída fica bloqueada depois de muitas tentativas erradas (ms desde 1970). */
     private long bloqueioSaidaAte = 0;
     /**
      * Número da "sessão" do cliente atual. Sobe a cada volta ao início ou ao fechar a tela:
@@ -172,9 +174,11 @@ public class TelaAutoatendimento extends JPanel {
         }
     };
 
-    // ---------------------------------------------------------------
+    // =========================================================================
     // CONSTRUTOR E CICLO DE VIDA
-    // ---------------------------------------------------------------
+    // Monta as 4 etapas num CardLayout. iniciar()/encerrar() são chamados pelo
+    // App ao abrir e fechar o autoatendimento.
+    // =========================================================================
 
     /**
      * @param recargas a tela de recargas (dá acesso ao banco pelas regras já existentes)
@@ -221,9 +225,10 @@ public class TelaAutoatendimento extends JPanel {
         timerContagem.stop();
     }
 
-    // ---------------------------------------------------------------
-    // CABEÇALHO (logo, título, passo atual e botão de saída)
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // CABEÇALHO
+    // Logo, título, indicação do passo atual e o botão "Sair" (só funcionários).
+    // =========================================================================
     private JPanel criarCabecalho() {
         JPanel topo = new JPanel(new BorderLayout(20, 0));
         topo.setOpaque(false);
@@ -231,23 +236,16 @@ public class TelaAutoatendimento extends JPanel {
         JPanel marca = new JPanel(new FlowLayout(FlowLayout.LEFT, 18, 0));
         marca.setOpaque(false);
         JLabel logo = new JLabel(carregarIcone("Logo_arcade.png", 64, null));
-        if (logo.getIcon() == null) {
-            logo = new JLabel("A", SwingConstants.CENTER);
-            logo.setForeground(Color.WHITE);
-            logo.setFont(new Font("Segoe UI", Font.BOLD, 30));
+        if (logo.getIcon() == null) { // sem imagem: mostra um "A" no lugar
+            logo = rotulo("A", SwingConstants.CENTER, Font.BOLD, 30, Color.WHITE);
             logo.setPreferredSize(new Dimension(64, 64));
         }
         marca.add(logo);
 
         JPanel textos = new JPanel(new GridLayout(2, 1, 0, 2));
         textos.setOpaque(false);
-        JLabel titulo = new JLabel("Autoatendimento de recargas");
-        titulo.setFont(new Font("Segoe UI", Font.BOLD, 28));
-        titulo.setForeground(Color.WHITE);
-        lblPasso = new JLabel();
-        lblPasso.setFont(new Font("Segoe UI", Font.PLAIN, 16));
-        lblPasso.setForeground(TEXTO_SUAVE);
-        textos.add(titulo);
+        lblPasso = rotulo("", Font.PLAIN, 16, TEXTO_SUAVE);
+        textos.add(rotulo("Autoatendimento de recargas", Font.BOLD, 28, Color.WHITE));
         textos.add(lblPasso);
         marca.add(textos);
 
@@ -256,9 +254,8 @@ public class TelaAutoatendimento extends JPanel {
         return topo;
     }
 
-    /** Botão de saída com o ícone que já existe no projeto (botao saida.png). Exige login de funcionário. */
+    /** Botão de saída com o ícone do projeto (botao saida.png), clareado para o fundo escuro. */
     private JButton criarBotaoSaida() {
-        // Mesmo desenho do projeto, clareado para aparecer no fundo escuro
         JButton b = new JButton("Sair", carregarIcone("botao saida.png", 34, COR_ICONE_CLARO));
         b.setFont(new Font("Segoe UI", Font.BOLD, 15));
         b.setForeground(TEXTO_SUAVE);
@@ -276,48 +273,41 @@ public class TelaAutoatendimento extends JPanel {
         return b;
     }
 
-    // ---------------------------------------------------------------
+    // =========================================================================
     // ETAPA 1: CARTÃO
-    // ---------------------------------------------------------------
+    // Visor com o número digitado + teclado numérico. Ao continuar, o cartão é
+    // conferido no banco (existe? está ativo?).
+    // =========================================================================
     private JPanel criarEtapaCartao() {
         JPanel etapa = new JPanel(new GridLayout(1, 2, 36, 0));
         etapa.setOpaque(false);
 
-        // Esquerda: instruções + número digitado
+        // Esquerda: instruções + número digitado + botão Continuar
         JPanel esquerda = painelArredondado(new BorderLayout(0, 18), CARD);
         esquerda.setBorder(BorderFactory.createEmptyBorder(30, 34, 30, 34));
 
         JPanel textos = new JPanel(new GridLayout(2, 1, 0, 8));
         textos.setOpaque(false);
-        JLabel pergunta = new JLabel("Qual é o número do seu cartão?");
-        pergunta.setFont(new Font("Segoe UI", Font.BOLD, 26));
-        pergunta.setForeground(Color.WHITE);
-        JLabel dica = new JLabel("Digite os números que estão no seu cartão e toque em Continuar.");
-        dica.setFont(new Font("Segoe UI", Font.PLAIN, 16));
-        dica.setForeground(TEXTO_SUAVE);
-        textos.add(pergunta);
-        textos.add(dica);
+        textos.add(rotulo("Qual é o número do seu cartão?", Font.BOLD, 26, Color.WHITE));
+        textos.add(rotulo("Digite os números que estão no seu cartão e toque em Continuar.",
+                Font.PLAIN, 16, TEXTO_SUAVE));
         esquerda.add(textos, BorderLayout.NORTH);
 
         JPanel visor = painelArredondado(new BorderLayout(), CAMPO);
-        lblCartaoDigitado = new JLabel("—", SwingConstants.CENTER);
-        lblCartaoDigitado.setFont(new Font("Segoe UI", Font.BOLD, 64));
-        lblCartaoDigitado.setForeground(AZUL_CLARO);
+        lblCartaoDigitado = rotulo("—", SwingConstants.CENTER, Font.BOLD, 64, AZUL_CLARO);
         visor.add(lblCartaoDigitado, BorderLayout.CENTER);
         esquerda.add(visor, BorderLayout.CENTER);
 
         JPanel rodapeEsq = new JPanel(new BorderLayout(0, 12));
         rodapeEsq.setOpaque(false);
-        lblErroCartao = new JLabel(" ", SwingConstants.CENTER);
-        lblErroCartao.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        lblErroCartao.setForeground(ERRO);
+        lblErroCartao = rotulo(" ", SwingConstants.CENTER, Font.BOLD, 16, ERRO);
         btnContinuar = criarBotao("Continuar", true, 22, new Dimension(0, 84));
         btnContinuar.addActionListener(e -> continuarComCartao());
         rodapeEsq.add(lblErroCartao, BorderLayout.NORTH);
         rodapeEsq.add(btnContinuar, BorderLayout.CENTER);
         esquerda.add(rodapeEsq, BorderLayout.SOUTH);
 
-        // Direita: teclado numérico
+        // Direita: teclado numérico (1-9, Limpar, 0, Apagar)
         JPanel direita = painelArredondado(new BorderLayout(), CARD);
         direita.setBorder(BorderFactory.createEmptyBorder(24, 24, 24, 24));
         JPanel teclado = new JPanel(new GridLayout(4, 3, 14, 14));
@@ -370,17 +360,13 @@ public class TelaAutoatendimento extends JPanel {
         lblCartaoDigitado.setText(digitos.length() == 0 ? "—" : digitos.toString());
     }
 
-    private void mostrarErroCartao(String msg) {
-        lblErroCartao.setText(msg);
-    }
-
-    /** Confere o cartão no banco (em segundo plano) antes de avançar. */
+    /** Confere o cartão no banco (em segundo plano) antes de avançar para a escolha do valor. */
     private void continuarComCartao() {
         if (ocupado) {
             return;
         }
         if (digitos.length() == 0) {
-            mostrarErroCartao("Digite o número do seu cartão.");
+            lblErroCartao.setText("Digite o número do seu cartão.");
             return;
         }
         final long idCartao = Long.parseLong(digitos.toString());
@@ -398,11 +384,11 @@ public class TelaAutoatendimento extends JPanel {
                         return; // o cliente já voltou ao início (ou a tela foi fechada)
                     }
                     if (info == null) {
-                        mostrarErroCartao("Cartão não encontrado. Confira o número ou procure a recepção.");
+                        lblErroCartao.setText("Cartão não encontrado. Confira o número ou procure a recepção.");
                         return;
                     }
                     if (!info.ativo) {
-                        mostrarErroCartao("Este cartão está bloqueado. Procure a recepção.");
+                        lblErroCartao.setText("Este cartão está bloqueado. Procure a recepção.");
                         return;
                     }
                     cartao = info;
@@ -414,7 +400,7 @@ public class TelaAutoatendimento extends JPanel {
                     liberarBotaoContinuar();
                     registrarFalha("consultar cartão", ex);
                     if (geracaoAtual == geracao) {
-                        mostrarErroCartao(MSG_INDISPONIVEL);
+                        lblErroCartao.setText(MSG_INDISPONIVEL);
                     }
                 });
     }
@@ -425,31 +411,25 @@ public class TelaAutoatendimento extends JPanel {
         btnContinuar.setText("Continuar");
     }
 
-    // ---------------------------------------------------------------
+    // =========================================================================
     // ETAPA 2: VALOR
-    // ---------------------------------------------------------------
+    // Saudação com o saldo atual e os botões de valor (R$ -> créditos).
+    // =========================================================================
     private JPanel criarEtapaValor() {
         JPanel etapa = new JPanel(new BorderLayout(0, 26));
         etapa.setOpaque(false);
 
         JPanel cabecalho = new JPanel(new GridLayout(2, 1, 0, 6));
         cabecalho.setOpaque(false);
-        lblOla = new JLabel(" ");
-        lblOla.setFont(new Font("Segoe UI", Font.BOLD, 34));
-        lblOla.setForeground(Color.WHITE);
-        lblSaldo = new JLabel(" ");
-        lblSaldo.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-        lblSaldo.setForeground(TEXTO_SUAVE);
+        lblOla = rotulo(" ", Font.BOLD, 34, Color.WHITE);
+        lblSaldo = rotulo(" ", Font.PLAIN, 18, TEXTO_SUAVE);
         cabecalho.add(lblOla);
         cabecalho.add(lblSaldo);
         etapa.add(cabecalho, BorderLayout.NORTH);
 
         JPanel opcoesBox = painelArredondado(new BorderLayout(0, 20), CARD);
         opcoesBox.setBorder(BorderFactory.createEmptyBorder(30, 30, 30, 30));
-        JLabel instrucao = new JLabel("Quanto você quer recarregar?");
-        instrucao.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        instrucao.setForeground(Color.WHITE);
-        opcoesBox.add(instrucao, BorderLayout.NORTH);
+        opcoesBox.add(rotulo("Quanto você quer recarregar?", Font.BOLD, 22, Color.WHITE), BorderLayout.NORTH);
 
         JPanel grade = new JPanel(new GridLayout(1, VALORES_REAIS.length, 18, 0));
         grade.setOpaque(false);
@@ -487,32 +467,26 @@ public class TelaAutoatendimento extends JPanel {
         mostrarEtapa(ETAPA_PAGAMENTO);
     }
 
-    // ---------------------------------------------------------------
+    // =========================================================================
     // ETAPA 3: PAGAMENTO
-    // ---------------------------------------------------------------
+    // Lista de formas de pagamento (vinda do banco) e o botão que grava a recarga.
+    // =========================================================================
     private JPanel criarEtapaPagamento() {
         JPanel etapa = new JPanel(new BorderLayout(0, 26));
         etapa.setOpaque(false);
 
-        lblResumo = new JLabel(" ");
-        lblResumo.setFont(new Font("Segoe UI", Font.PLAIN, 20));
-        lblResumo.setForeground(Color.WHITE);
+        lblResumo = rotulo(" ", Font.PLAIN, 20, Color.WHITE);
         etapa.add(lblResumo, BorderLayout.NORTH);
 
         JPanel formasBox = painelArredondado(new BorderLayout(0, 20), CARD);
         formasBox.setBorder(BorderFactory.createEmptyBorder(30, 30, 30, 30));
-        JLabel instrucao = new JLabel("Como você vai pagar?");
-        instrucao.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        instrucao.setForeground(Color.WHITE);
-        formasBox.add(instrucao, BorderLayout.NORTH);
+        formasBox.add(rotulo("Como você vai pagar?", Font.BOLD, 22, Color.WHITE), BorderLayout.NORTH);
 
         painelFormas = new JPanel(new FlowLayout(FlowLayout.CENTER, 18, 18));
         painelFormas.setOpaque(false);
         formasBox.add(painelFormas, BorderLayout.CENTER);
 
-        lblErroPagamento = new JLabel(" ", SwingConstants.CENTER);
-        lblErroPagamento.setFont(new Font("Segoe UI", Font.BOLD, 16));
-        lblErroPagamento.setForeground(ERRO);
+        lblErroPagamento = rotulo(" ", SwingConstants.CENTER, Font.BOLD, 16, ERRO);
         formasBox.add(lblErroPagamento, BorderLayout.SOUTH);
         etapa.add(formasBox, BorderLayout.CENTER);
 
@@ -556,15 +530,17 @@ public class TelaAutoatendimento extends JPanel {
                 });
     }
 
+    /** Recria os botões de forma de pagamento (ou um aviso, se ainda não há nenhuma). */
     private void preencherFormas() {
         painelFormas.removeAll();
         grupoFormas = new ButtonGroup();
         formaEscolhida = null;
 
         if (!formasCarregadas) {
-            painelFormas.add(criarRotuloAviso("Carregando formas de pagamento..."));
+            painelFormas.add(rotulo("Carregando formas de pagamento...", Font.PLAIN, 18, TEXTO_SUAVE));
         } else if (formas.isEmpty()) {
-            painelFormas.add(criarRotuloAviso("Nenhuma forma de pagamento disponível. Procure a recepção."));
+            painelFormas.add(rotulo("Nenhuma forma de pagamento disponível. Procure a recepção.",
+                    Font.PLAIN, 18, TEXTO_SUAVE));
         } else {
             for (String forma : formas) {
                 JToggleButton b = criarOpcaoForma(forma);
@@ -575,13 +551,6 @@ public class TelaAutoatendimento extends JPanel {
         }
         painelFormas.revalidate();
         painelFormas.repaint();
-    }
-
-    private JLabel criarRotuloAviso(String texto) {
-        JLabel l = new JLabel(texto);
-        l.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-        l.setForeground(TEXTO_SUAVE);
-        return l;
     }
 
     private void selecionarForma(String forma) {
@@ -636,32 +605,26 @@ public class TelaAutoatendimento extends JPanel {
                 });
     }
 
+    /** Desliga (ou religa) o botão Confirmar e as opções de pagamento durante a gravação. */
     private void bloquearPagamento(boolean bloquear) {
         btnConfirmar.setEnabled(!bloquear && formaEscolhida != null);
         btnConfirmar.setText(bloquear ? "Registrando..." : "Confirmar recarga");
-        for (java.util.Enumeration<javax.swing.AbstractButton> e = grupoFormas.getElements(); e.hasMoreElements();) {
+        for (Enumeration<AbstractButton> e = grupoFormas.getElements(); e.hasMoreElements();) {
             e.nextElement().setEnabled(!bloquear);
         }
     }
 
-    // ---------------------------------------------------------------
+    // =========================================================================
     // ETAPA 4: CONFIRMAÇÃO
-    // ---------------------------------------------------------------
+    // Mostra os créditos adicionados e o novo saldo; volta ao início sozinha
+    // depois de alguns segundos (contagem regressiva).
+    // =========================================================================
     private JPanel criarEtapaConfirmacao() {
         JPanel etapa = painelArredondado(new GridLayout(0, 1, 0, 18), CARD);
         etapa.setBorder(BorderFactory.createEmptyBorder(40, 40, 40, 40));
 
-        JLabel titulo = new JLabel("Recarga confirmada!", SwingConstants.CENTER);
-        titulo.setFont(new Font("Segoe UI", Font.BOLD, 44));
-        titulo.setForeground(SUCESSO);
-
-        lblConfirmacaoDetalhe = new JLabel(" ", SwingConstants.CENTER);
-        lblConfirmacaoDetalhe.setFont(new Font("Segoe UI", Font.PLAIN, 22));
-        lblConfirmacaoDetalhe.setForeground(Color.WHITE);
-
-        lblContagem = new JLabel(" ", SwingConstants.CENTER);
-        lblContagem.setFont(new Font("Segoe UI", Font.PLAIN, 16));
-        lblContagem.setForeground(TEXTO_SUAVE);
+        lblConfirmacaoDetalhe = rotulo(" ", SwingConstants.CENTER, Font.PLAIN, 22, Color.WHITE);
+        lblContagem = rotulo(" ", SwingConstants.CENTER, Font.PLAIN, 16, TEXTO_SUAVE);
 
         JButton novaRecarga = criarBotao("Nova recarga", true, 22, new Dimension(300, 80));
         novaRecarga.addActionListener(e -> voltarAoInicio());
@@ -669,7 +632,7 @@ public class TelaAutoatendimento extends JPanel {
         botaoBox.setOpaque(false);
         botaoBox.add(novaRecarga);
 
-        etapa.add(titulo);
+        etapa.add(rotulo("Recarga confirmada!", SwingConstants.CENTER, Font.BOLD, 44, SUCESSO));
         etapa.add(lblConfirmacaoDetalhe);
         etapa.add(lblContagem);
         etapa.add(botaoBox);
@@ -700,9 +663,11 @@ public class TelaAutoatendimento extends JPanel {
         lblContagem.setText("Voltando ao início em " + segundosRestantes + " segundos...");
     }
 
-    // ---------------------------------------------------------------
-    // NAVEGAÇÃO, INATIVIDADE E TECLADO
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // NAVEGAÇÃO, INATIVIDADE E TECLADO FÍSICO
+    // Troca de etapa, volta ao início (limpando tudo), relógio de 60s sem uso e
+    // atalhos do teclado físico na etapa do cartão.
+    // =========================================================================
 
     /** Volta ao início e limpa tudo o que foi digitado ou consultado. */
     private void voltarAoInicio() {
@@ -756,39 +721,22 @@ public class TelaAutoatendimento extends JPanel {
 
     /** Teclado físico: dígitos, Backspace (apagar) e Enter (continuar), só na etapa do cartão. */
     private void instalarTeclado() {
-        InputMap im = getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        ActionMap am = getActionMap();
-
         for (char c = '0'; c <= '9'; c++) {
             final String d = String.valueOf(c);
-            String nome = "digito" + c;
-            im.put(KeyStroke.getKeyStroke(c), nome);
-            am.put(nome, new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    if (podeUsarTeclado()) {
-                        digitar(d);
-                    }
-                }
-            });
+            atalho(KeyStroke.getKeyStroke(c), "digito" + c, () -> digitar(d));
         }
+        atalho(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "apagar", this::apagarUltimo);
+        atalho(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "continuar", this::continuarComCartao);
+    }
 
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "apagar");
-        am.put("apagar", new AbstractAction() {
+    /** Liga uma tecla a uma ação, que só roda quando o teclado pode ser usado. */
+    private void atalho(KeyStroke tecla, String nome, Runnable acao) {
+        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(tecla, nome);
+        getActionMap().put(nome, new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 if (podeUsarTeclado()) {
-                    apagarUltimo();
-                }
-            }
-        });
-
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "continuar");
-        am.put("continuar", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (podeUsarTeclado()) {
-                    continuarComCartao();
+                    acao.run();
                 }
             }
         });
@@ -798,9 +746,11 @@ public class TelaAutoatendimento extends JPanel {
         return ETAPA_CARTAO.equals(etapaAtual) && !saidaAberta;
     }
 
-    // ---------------------------------------------------------------
-    // SAÍDA (somente funcionário cadastrado e ativo)
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // SAÍDA DO AUTOATENDIMENTO (somente administrador ativo)
+    // Janela modal que pede usuário e senha. 3 tentativas erradas bloqueiam a
+    // saída por 30 segundos.
+    // =========================================================================
     private void abrirSaidaFuncionario() {
         if (saidaAberta) {
             return;
@@ -816,15 +766,7 @@ public class TelaAutoatendimento extends JPanel {
         c.setBackground(CARD);
         c.setBorder(BorderFactory.createEmptyBorder(24, 28, 24, 28));
 
-        JPanel form = new JPanel(new GridLayout(0, 1, 0, 6));
-        form.setOpaque(false);
-        JLabel titulo = new JLabel("Área de funcionários");
-        titulo.setFont(new Font("Segoe UI", Font.BOLD, 20));
-        titulo.setForeground(Color.WHITE);
-        JLabel aviso = new JLabel("Digite o usuário e a senha de um administrador ativo.");
-        aviso.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        aviso.setForeground(TEXTO_SUAVE);
-
+        // --- Formulário (título, aviso, usuário, senha, mensagem de erro) ---
         JTextField txtUsuario = new JTextField();
         JPasswordField txtSenha = new JPasswordField();
         for (JTextField campo : new JTextField[] { txtUsuario, txtSenha }) {
@@ -837,16 +779,15 @@ public class TelaAutoatendimento extends JPanel {
                     BorderFactory.createLineBorder(new Color(30, 48, 80)),
                     BorderFactory.createEmptyBorder(4, 10, 4, 10)));
         }
+        JLabel lblErro = rotulo(" ", Font.BOLD, 14, ERRO);
 
-        JLabel lblErro = new JLabel(" ");
-        lblErro.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        lblErro.setForeground(ERRO);
-
-        form.add(titulo);
-        form.add(aviso);
-        form.add(criarRotuloCampo("Usuário"));
+        JPanel form = new JPanel(new GridLayout(0, 1, 0, 6));
+        form.setOpaque(false);
+        form.add(rotulo("Área de funcionários", Font.BOLD, 20, Color.WHITE));
+        form.add(rotulo("Digite o usuário e a senha de um administrador ativo.", Font.PLAIN, 14, TEXTO_SUAVE));
+        form.add(rotulo("Usuário", Font.PLAIN, 14, TEXTO_SUAVE));
         form.add(txtUsuario);
-        form.add(criarRotuloCampo("Senha"));
+        form.add(rotulo("Senha", Font.PLAIN, 14, TEXTO_SUAVE));
         form.add(txtSenha);
         form.add(lblErro);
         c.add(form, BorderLayout.CENTER);
@@ -857,7 +798,7 @@ public class TelaAutoatendimento extends JPanel {
         // true enquanto a conferência no banco está em andamento
         final boolean[] verificando = { false };
 
-        // Mantém o botão desligado e a contagem certa enquanto durar o bloqueio por tentativas
+        // --- Bloqueio por tentativas: mantém o botão desligado e mostra a contagem ---
         Runnable atualizarBloqueio = () -> {
             long restante = (bloqueioSaidaAte - System.currentTimeMillis() + 999) / 1000;
             if (restante > 0) {
@@ -872,6 +813,7 @@ public class TelaAutoatendimento extends JPanel {
         };
         Timer relogio = new Timer(1000, e -> atualizarBloqueio.run());
 
+        // --- Fechar a janela (Cancelar ou X) ---
         Runnable fechar = () -> {
             relogio.stop();
             dialogo.dispose();
@@ -900,6 +842,7 @@ public class TelaAutoatendimento extends JPanel {
             }
         };
 
+        // --- Botão "Sair": confere usuário/senha no banco (em segundo plano) ---
         btnEntrar.addActionListener(e -> {
             String usuario = txtUsuario.getText().trim();
             String senha = new String(txtSenha.getPassword());
@@ -914,7 +857,6 @@ public class TelaAutoatendimento extends JPanel {
                 return;
             }
 
-            // A conferência vai ao banco: roda em segundo plano, com o botão desligado enquanto isso
             verificando[0] = true;
             btnEntrar.setEnabled(false);
             lblErro.setText("Verificando...");
@@ -958,16 +900,10 @@ public class TelaAutoatendimento extends JPanel {
         dialogo.setVisible(true); // modal: só volta quando a janela fechar
     }
 
-    private JLabel criarRotuloCampo(String texto) {
-        JLabel l = new JLabel(texto);
-        l.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        l.setForeground(TEXTO_SUAVE);
-        return l;
-    }
-
-    // ---------------------------------------------------------------
+    // =========================================================================
     // SEGUNDO PLANO E LOG
-    // ---------------------------------------------------------------
+    // Consultas ao banco rodam fora da thread da interface para a tela não travar.
+    // =========================================================================
 
     /** Roda a tarefa (banco) fora da interface e devolve o resultado na thread da interface. */
     private <T> void emBackground(Callable<T> tarefa, Consumer<T> aoConcluir, Consumer<Exception> aoFalhar) {
@@ -996,11 +932,26 @@ public class TelaAutoatendimento extends JPanel {
         System.err.println("Autoatendimento - falha ao " + acao + ": " + ex.getMessage());
     }
 
-    // ---------------------------------------------------------------
-    // VISUAL
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // COMPONENTES VISUAIS
+    // Fábricas de rótulos, painéis arredondados, botões grandes para toque e
+    // carregamento de ícones.
+    // =========================================================================
 
-    /** Painel com cantos arredondados (cartões da tela). */
+    /** Rótulo com fonte Segoe UI, alinhado à esquerda. */
+    private static JLabel rotulo(String texto, int estilo, int tamanho, Color cor) {
+        return rotulo(texto, SwingConstants.LEADING, estilo, tamanho, cor);
+    }
+
+    /** Rótulo com fonte Segoe UI e alinhamento escolhido. */
+    private static JLabel rotulo(String texto, int alinhamento, int estilo, int tamanho, Color cor) {
+        JLabel l = new JLabel(texto, alinhamento);
+        l.setFont(new Font("Segoe UI", estilo, tamanho));
+        l.setForeground(cor);
+        return l;
+    }
+
+    /** Painel com cantos arredondados (os "cartões" da tela). */
     private JPanel painelArredondado(LayoutManager layout, Color cor) {
         JPanel p = new JPanel(layout) {
             @Override
@@ -1023,8 +974,6 @@ public class TelaAutoatendimento extends JPanel {
         JButton b = new JButton(texto) {
             @Override
             protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 Color cor;
                 if (!isEnabled()) {
                     cor = DESABILITADO;
@@ -1033,9 +982,7 @@ public class TelaAutoatendimento extends JPanel {
                 } else {
                     cor = primario ? AZUL : BOTAO_SECUNDARIO;
                 }
-                g2.setColor(cor);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 18, 18);
-                g2.dispose();
+                pintarFundo(g, this, cor);
                 super.paintComponent(g);
             }
         };
@@ -1048,24 +995,22 @@ public class TelaAutoatendimento extends JPanel {
         JToggleButton b = new JToggleButton(texto) {
             @Override
             protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                Color cor;
-                if (!isEnabled()) {
-                    cor = DESABILITADO;
-                } else if (isSelected()) {
-                    cor = AZUL;
-                } else {
-                    cor = BOTAO_SECUNDARIO;
-                }
-                g2.setColor(cor);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 18, 18);
-                g2.dispose();
+                Color cor = !isEnabled() ? DESABILITADO : isSelected() ? AZUL : BOTAO_SECUNDARIO;
+                pintarFundo(g, this, cor);
                 super.paintComponent(g);
             }
         };
         estilizarBotao(b, 20, new Dimension(260, 96));
         return b;
+    }
+
+    /** Pinta o fundo arredondado de um botão na cor indicada. */
+    private static void pintarFundo(Graphics g, AbstractButton b, Color cor) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(cor);
+        g2.fillRoundRect(0, 0, b.getWidth(), b.getHeight(), 18, 18);
+        g2.dispose();
     }
 
     private static void estilizarBotao(AbstractButton b, int fonte, Dimension tamanho) {

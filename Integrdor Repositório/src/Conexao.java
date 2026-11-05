@@ -1,34 +1,56 @@
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
- * Conexão com o MySQL remoto (Aiven), agora com um POOL LEVE de conexões.
+ * Conexão com o banco MySQL remoto (Aiven), com um POOL LEVE de conexões.
  *
- * Por que isso existe: abrir uma conexão nova com um servidor remoto (handshake
- * TCP + SSL + login) leva de centenas de milissegundos a alguns segundos, e as
- * telas abriam uma conexão nova a cada consulta. Era isso que deixava a abertura
- * das telas lenta.
+ * Por que o pool existe: abrir uma conexão com um servidor remoto (TCP + SSL + login)
+ * demora de centenas de milissegundos a alguns segundos. Em vez de abrir uma nova a
+ * cada consulta, as conexões fechadas voltam para uma fila e são reaproveitadas.
  *
- * Como funciona: o código das telas continua IGUAL (Conexao.conectar() dentro de
- * try-with-resources). Só que o close() não derruba mais a conexão: ela volta para
- * uma fila e é reaproveitada pela próxima chamada.
+ * Como usar nas telas (sempre em try-with-resources):
+ *
+ *   try (Connection con = Conexao.conectar()) { ... }
+ *
+ * O close() não derruba a conexão: ele a devolve ao pool.
+ *
+ * As credenciais ficam no arquivo .env (veja .env.example), fora do código.
  */
 public class Conexao {
 
-    // Altere as credenciais de acordo com a sua base de dados MySQL remoto
-    // connectTimeout: se estiver sem internet, desiste em 10s em vez de ficar travado
-    private static final String URL = "jdbc:mysql://mysql-14e29d2-integradorarcade.b.aivencloud.com:17853/integradorarcade?sslMode=REQUIRED&connectTimeout=10000";
-    private static final String USER = "avnadmin";
-    private static final String PASSWORD = "AVNS_OE5PEonim4HMG18g_M9";
+    // =========================================================================
+    // CONFIGURAÇÃO
+    // Credenciais lidas do .env (ou de variáveis de ambiente) e limites do pool.
+    // =========================================================================
+
+    private static final Map<String, String> ENV = carregarEnv();
+
+    private static final String URL = config("DB_URL");
+    private static final String USER = config("DB_USER");
+    private static final String PASSWORD = config("DB_PASSWORD");
+
+    /**
+     * Fuso horário usado pelo banco nesta conexão. O servidor (Aiven) roda em UTC;
+     * com isto, NOW(), CURDATE() e DEFAULT CURRENT_TIMESTAMP gravam o horário de Brasília.
+     */
+    private static final String FUSO_BANCO = "America/Sao_Paulo";
 
     /** Quantas conexões ficam guardadas prontas para uso. */
     private static final int MAX_OCIOSAS = 4;
@@ -48,6 +70,10 @@ public class Conexao {
 
     private static final LinkedBlockingQueue<Ociosa> OCIOSAS = new LinkedBlockingQueue<>();
 
+    // =========================================================================
+    // USO PELAS TELAS
+    // =========================================================================
+
     /**
      * Devolve uma conexão pronta para uso (ou null se não conseguir conectar).
      * Use SEMPRE em try-with-resources: o close() devolve a conexão ao pool.
@@ -57,6 +83,7 @@ public class Conexao {
             Connection real = pegarOciosa();
             if (real == null) {
                 real = DriverManager.getConnection(URL, USER, PASSWORD);
+                definirFuso(real);
                 System.out.println("Conexao com o MySQL estabelecida com sucesso!");
             }
             return embrulhar(real);
@@ -101,17 +128,27 @@ public class Conexao {
         }
 
         for (Connection c : abertas) {
-            try {
-                c.close(); // devolve ao pool
-            } catch (SQLException ignorar) {
-            }
+            fecharSilencioso(c); // devolve ao pool
         }
         return true;
     }
 
-    // ---------------------------------------------------------------
-    // INTERNO
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // FUNCIONAMENTO INTERNO DO POOL
+    // =========================================================================
+
+    /**
+     * Coloca a conexão no fuso de Brasília. Vale para a conexão inteira, inclusive
+     * quando ela volta ao pool e é reaproveitada.
+     */
+    private static void definirFuso(Connection real) throws SQLException {
+        try (Statement st = real.createStatement()) {
+            st.execute("SET time_zone = '" + FUSO_BANCO + "'");
+        } catch (SQLException e) {
+            fecharSilencioso(real);
+            throw e;
+        }
+    }
 
     /** Pega uma conexão guardada que ainda esteja viva; null se não houver. */
     private static Connection pegarOciosa() {
@@ -187,5 +224,54 @@ public class Conexao {
             c.close();
         } catch (SQLException ignorar) {
         }
+    }
+
+    // =========================================================================
+    // LEITURA DO .env
+    // Procura o arquivo na pasta atual e nas pastas próximas (o programa pode ser
+    // executado pela raiz do repositório ou por dentro de "Integrdor Repositório").
+    // =========================================================================
+
+    /** Valor de uma chave: primeiro a variável de ambiente do sistema, depois o .env. */
+    private static String config(String chave) {
+        String valor = System.getenv(chave);
+        if (valor == null || valor.isEmpty()) {
+            valor = ENV.get(chave);
+        }
+        if (valor == null) {
+            System.err.println("Configuração ausente: " + chave + " (crie o arquivo .env a partir do .env.example)");
+        }
+        return valor;
+    }
+
+    /** Lê linhas "CHAVE=valor" do primeiro .env encontrado. Ignora linhas vazias e comentários (#). */
+    private static Map<String, String> carregarEnv() {
+        String[] locais = { ".env", "../.env", "../../.env", "Integrdor Repositório/.env" };
+        Map<String, String> valores = new HashMap<>();
+        for (String local : locais) {
+            Path arquivo = Paths.get(local);
+            if (!Files.isRegularFile(arquivo)) {
+                continue;
+            }
+            try {
+                for (String linha : Files.readAllLines(arquivo, StandardCharsets.UTF_8)) {
+                    linha = linha.trim();
+                    int igual = linha.indexOf('=');
+                    if (linha.isEmpty() || linha.startsWith("#") || igual < 0) {
+                        continue;
+                    }
+                    String chave = linha.substring(0, igual).trim();
+                    String valor = linha.substring(igual + 1).trim();
+                    if (valor.length() >= 2 && valor.startsWith("\"") && valor.endsWith("\"")) {
+                        valor = valor.substring(1, valor.length() - 1); // aceita valor entre aspas
+                    }
+                    valores.put(chave, valor);
+                }
+            } catch (IOException e) {
+                System.err.println("Não foi possível ler " + arquivo.toAbsolutePath() + ": " + e.getMessage());
+            }
+            break;
+        }
+        return valores;
     }
 }

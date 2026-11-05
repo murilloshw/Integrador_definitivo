@@ -10,6 +10,7 @@ import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Arc2D;
@@ -18,7 +19,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -37,13 +37,20 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 
 /**
- * Tela de Início: resumo do arcade com os números principais, as recargas da
- * semana, as máquinas mais jogadas e os prêmios acabando.
+ * Tela de Início (dashboard): resumo do arcade com os números principais, as
+ * recargas da semana, o ranking do dia, as máquinas mais jogadas e os prêmios acabando.
  *
- * Os dados são lidos em segundo plano e a tela não abre mensagens de erro: se o
- * banco cair, continua mostrando os últimos números e avisa no canto superior.
+ * Como funciona: o App chama recarregar() ao abrir a tela e atualizarSilenciosamente()
+ * a cada 3s; a tela só vai de fato ao banco a cada 15s. Os dados são lidos em segundo
+ * plano e a tela não abre mensagens de erro: se o banco cair, continua mostrando os
+ * últimos números e avisa no canto superior.
  */
 public class TelaDashboard extends JPanel {
+
+    // =========================================================================
+    // CONSTANTES
+    // Cores, limites e formatadores (moeda, números, horas) usados na tela.
+    // =========================================================================
 
     private static final Color FUNDO = new Color(2, 12, 27);
     private static final Color CARD = new Color(10, 22, 40);
@@ -70,6 +77,11 @@ public class TelaDashboard extends JPanel {
     private static final DateTimeFormatter HORA = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final DateTimeFormatter DIA_MES = DateTimeFormatter.ofPattern("dd/MM");
 
+    // =========================================================================
+    // MODELO DE DADOS
+    // Tudo o que a tela mostra, preenchido de uma vez pela consulta ao banco.
+    // =========================================================================
+
     /** Tudo o que a tela mostra, já lido do banco. */
     static class Dados {
         long clientes;
@@ -95,6 +107,11 @@ public class TelaDashboard extends JPanel {
         boolean rankingEmPontos;
     }
 
+    // =========================================================================
+    // CAMPOS
+    // Componentes da tela (cards, gráfico, ranking, listas) e o controle de atualização.
+    // =========================================================================
+
     private final JLabel lblStatus = new JLabel(" ");
     private final Indicador indClientes = new Indicador("Clientes cadastrados");
     private final Indicador indCartoes = new Indicador("Cartões ativos");
@@ -113,6 +130,11 @@ public class TelaDashboard extends JPanel {
     private long ultimaConsulta = 0;
     private LocalTime ultimoSucesso;
 
+    // =========================================================================
+    // CONSTRUTOR
+    // Monta o layout (topo + indicadores + detalhes) e já dispara a primeira leitura.
+    // =========================================================================
+
     public TelaDashboard() {
         setBackground(FUNDO);
         setLayout(new BorderLayout(15, 12));
@@ -129,6 +151,13 @@ public class TelaDashboard extends JPanel {
         recarregar();
     }
 
+    // =========================================================================
+    // MONTAGEM DA INTERFACE
+    // Topo com título/saudação, grade de 8 indicadores e a área de detalhes
+    // (gráfico de recargas, ranking do dia e listas).
+    // =========================================================================
+
+    /** Título "Início", saudação ao funcionário logado e o status da atualização. */
     private JPanel criarTopo() {
         JPanel topo = new JPanel(new BorderLayout());
         topo.setOpaque(false);
@@ -158,6 +187,7 @@ public class TelaDashboard extends JPanel {
         return topo;
     }
 
+    /** Grade 2x4 com os cards de números. */
     private JPanel criarIndicadores() {
         JPanel grade = new JPanel(new GridLayout(2, 4, 12, 12));
         grade.setOpaque(false);
@@ -172,6 +202,7 @@ public class TelaDashboard extends JPanel {
         return grade;
     }
 
+    /** Três colunas: gráfico de recargas, ranking do dia e as duas listas. */
     private JPanel criarDetalhes() {
         JPanel detalhes = new JPanel(new GridBagLayout());
         detalhes.setOpaque(false);
@@ -192,18 +223,19 @@ public class TelaDashboard extends JPanel {
         c.weighty = 1;
         c.gridx = 0;
         c.weightx = 0.42;
-        c.insets = new java.awt.Insets(0, 0, 0, 12);
+        c.insets = new Insets(0, 0, 0, 12);
         detalhes.add(secaoGrafico, c);
         c.gridx = 1;
         c.weightx = 0.28;
         detalhes.add(ranking, c);
         c.gridx = 2;
         c.weightx = 0.30;
-        c.insets = new java.awt.Insets(0, 0, 0, 0);
+        c.insets = new Insets(0, 0, 0, 0);
         detalhes.add(coluna, c);
         return detalhes;
     }
 
+    /** Card com título em cima e o conteúdo embaixo. */
     private JPanel criarSecao(String titulo, JPanel conteudo) {
         JPanel secao = new PainelCard();
         secao.setLayout(new BorderLayout(0, 8));
@@ -217,6 +249,12 @@ public class TelaDashboard extends JPanel {
         secao.add(conteudo, BorderLayout.CENTER);
         return secao;
     }
+
+    // =========================================================================
+    // ATUALIZAÇÃO
+    // Controla quando buscar os dados: na abertura da tela e, depois, no
+    // máximo a cada 15s. A consulta roda num SwingWorker (fora da thread da interface).
+    // =========================================================================
 
     /** Busca os dados agora (usado ao abrir a tela). */
     public void recarregar() {
@@ -258,18 +296,22 @@ public class TelaDashboard extends JPanel {
                 : "Sem conexão com o banco. Tentando novamente...");
     }
 
+    // =========================================================================
+    // CONSULTA AO BANCO
+    // Monta e executa os SQLs: resumo geral, recargas por dia, máquinas mais
+    // jogadas, prêmios com estoque baixo e ranking de pontos do dia.
+    // =========================================================================
+
     /** Lê tudo do banco. Roda fora da thread da interface. */
     static Dados consultar() throws SQLException {
-        // O banco grava em UTC: "hoje" precisa ser o dia no fuso de quem está usando.
-        ZoneId fuso = ZoneId.systemDefault();
-        int minutosFuso = fuso.getRules().getOffset(Instant.now()).getTotalSeconds() / 60;
-        LocalDate hoje = LocalDate.now(fuso);
+        LocalDate hoje = LocalDate.now(ZoneId.of("America/Sao_Paulo"));
         LocalDate inicioGrafico = hoje.minusDays(DIAS_GRAFICO - 1);
 
-        String diaRecarga = diaLocal("Data_Hora", minutosFuso);
-        // Recargas passam a ser gravadas já no horário local (TelaRecargas), então o dia é só DATE(Data_Hora).
-        String diaRecargaLocal = "DATE(Data_Hora)";
-        String diaPartida = diaLocal("p.Data_Hora", minutosFuso);
+        // Todas as datas são gravadas no horário de Brasília (ver Conexao.FUSO_BANCO),
+        // então o dia de cada registro é só DATE(Data_Hora).
+        String diaRecarga = "DATE(Data_Hora)";
+        String diaResgate = "DATE(Data_Hora)";
+        String diaPartida = "DATE(p.Data_Hora)";
         // Partida com 0 créditos em máquina paga é tentativa sem saldo (ver TelaPartidas).
         String partidaValida = "NOT (p.`Créditos_Gastos` = 0 AND COALESCE(m.Valor_Partida, 0) > 0)";
         String partidasComMaquina = "FROM partidas p LEFT JOIN `máquinas` m ON m.`ID_Máquina` = p.`ID_Máquina` ";
@@ -286,13 +328,13 @@ public class TelaDashboard extends JPanel {
                 + "(SELECT COUNT(*) FROM premios WHERE Ativo = TRUE AND Qtd_Disponivel <= " + LIMITE_ESTOQUE_BAIXO + ") AS estoque_baixo, "
                 + "(SELECT COUNT(*) " + partidasComMaquina + "WHERE " + partidaValida + " AND " + diaPartida + " = ?) AS partidas, "
                 + "(SELECT COUNT(DISTINCT p.`ID_Cartão`) " + partidasComMaquina + "WHERE " + partidaValida + " AND " + diaPartida + " = ?) AS jogadores, "
-                + "(SELECT COALESCE(SUM(Valor), 0) FROM recargas WHERE " + diaRecargaLocal + " = ?) AS recargas_valor, "
-                + "(SELECT COUNT(*) FROM recargas WHERE " + diaRecargaLocal + " = ?) AS recargas_qtd, "
-                + "(SELECT COUNT(*) FROM resgates WHERE " + diaRecarga + " = ?) AS resgates, "
-                + "(SELECT COALESCE(SUM(Pontos_Gastos), 0) FROM resgates WHERE " + diaRecarga + " = ?) AS resgates_pontos";
+                + "(SELECT COALESCE(SUM(Valor), 0) FROM recargas WHERE " + diaRecarga + " = ?) AS recargas_valor, "
+                + "(SELECT COUNT(*) FROM recargas WHERE " + diaRecarga + " = ?) AS recargas_qtd, "
+                + "(SELECT COUNT(*) FROM resgates WHERE " + diaResgate + " = ?) AS resgates, "
+                + "(SELECT COALESCE(SUM(Pontos_Gastos), 0) FROM resgates WHERE " + diaResgate + " = ?) AS resgates_pontos";
 
-        String sqlRecargas = "SELECT " + diaRecargaLocal + " AS dia, SUM(Valor) AS total FROM recargas "
-                + "WHERE " + diaRecargaLocal + " >= ? GROUP BY dia";
+        String sqlRecargas = "SELECT " + diaRecarga + " AS dia, SUM(Valor) AS total FROM recargas "
+                + "WHERE " + diaRecarga + " >= ? GROUP BY dia";
 
         String sqlMaquinas = "SELECT m.Nome AS nome, COUNT(*) AS qtd FROM partidas p "
                 + "JOIN `máquinas` m ON m.`ID_Máquina` = p.`ID_Máquina` "
@@ -410,10 +452,11 @@ public class TelaDashboard extends JPanel {
         }
     }
 
-    /** Expressão SQL que converte uma coluna em UTC para a data no fuso local. */
-    private static String diaLocal(String coluna, int minutosFuso) {
-        return "DATE(DATE_ADD(" + coluna + ", INTERVAL " + minutosFuso + " MINUTE))";
-    }
+
+    // =========================================================================
+    // EXIBIÇÃO DOS DADOS
+    // Joga os números lidos nos cards, no gráfico, no ranking e nas listas.
+    // =========================================================================
 
     /** Coloca os dados na tela. Roda na thread da interface. */
     void aplicar(Dados d) {
@@ -462,6 +505,13 @@ public class TelaDashboard extends JPanel {
         return INTEIRO.format(qtd) + " " + (qtd == 1 ? singular : varios);
     }
 
+    // =========================================================================
+    // COMPONENTES VISUAIS
+    // Peças desenhadas à mão: card arredondado, indicador, lista nome/valor,
+    // marca de legenda, rosca do ranking e gráfico de barras das recargas.
+    // =========================================================================
+
+    /** Fundo arredondado com borda, base de todos os cards da tela. */
     private static class PainelCard extends JPanel {
         PainelCard() {
             setOpaque(false);

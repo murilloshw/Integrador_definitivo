@@ -1,6 +1,7 @@
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dialog;
 import java.awt.Dimension;
@@ -55,9 +56,15 @@ import javax.swing.table.TableRowSorter;
  *
  * Toda gravação que mexe em créditos roda numa única transação (registro + saldo do cartão),
  * e a edição ajusta apenas a diferença, para o saldo nunca ficar errado.
+ *
+ * Uso: o App cria a tela uma vez e chama recarregar() sempre que ela é aberta.
  */
 public class TelaBiblioteca extends JPanel {
 
+    // =========================================================================
+    // CONSTANTES
+    // Cores, formato de data, textos de status e o SQL que trava uma ficha para edição.
+    // =========================================================================
     private static final Color FUNDO = new Color(2, 12, 27);
     private static final Color CARD = new Color(10, 22, 40);
     private static final Color BORDA = new Color(23, 42, 69);
@@ -72,6 +79,12 @@ public class TelaBiblioteca extends JPanel {
     private static final String SQL_FICHA_TRAVADA = "SELECT ID_Cliente, ID_Livro, Créditos_Recebidos, ID_Funcionário, Ativo "
             + "FROM ficha_leitura WHERE ID_Ficha = ? FOR UPDATE";
 
+    private static final String MSG_CREDITOS = "Os créditos devem ser um número inteiro maior ou igual a zero.";
+
+    // =========================================================================
+    // CAMPOS
+    // Botões das abas, o painel que troca entre elas e o rótulo de total no rodapé.
+    // =========================================================================
     private final CardLayout cards = new CardLayout();
     private final JPanel painelCards = new JPanel(cards);
     private final JLabel lblTotal = new JLabel();
@@ -87,9 +100,10 @@ public class TelaBiblioteca extends JPanel {
     private final Aba abaDoacaoSangue;
     private Aba abaAtiva;
 
-    // ---------------------------------------------------------------
-    // CONSTRUÇÃO DA TELA
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // CONSTRUTOR
+    // Define as quatro abas (colunas e consulta de cada uma) e monta topo, conteúdo e rodapé.
+    // =========================================================================
     public TelaBiblioteca() {
         setBackground(FUNDO);
         setLayout(new BorderLayout(15, 12));
@@ -110,7 +124,35 @@ public class TelaBiblioteca extends JPanel {
                 new String[] { "ID", "Cliente", "Data", "Créditos", "Bibliotecário", "ID_CLI" }, 5,
                 this::carregarDoacoesSangue, 1, 4);
 
-        // Cabeçalho: título + abas (mesmo estilo da tela de Recargas)
+        add(montarTopo(), BorderLayout.NORTH);
+
+        painelCards.setOpaque(false);
+        painelCards.add(montarAbaLivros(), abaLivros.chave);
+        painelCards.add(montarAbaFichas(), abaFichas.chave);
+        painelCards.add(montarAbaDoacaoLivros(), abaDoacaoLivros.chave);
+        painelCards.add(montarAbaDoacaoSangue(), abaDoacaoSangue.chave);
+        add(painelCards, BorderLayout.CENTER);
+
+        add(montarRodape(), BorderLayout.SOUTH);
+
+        // Abre na primeira aba sem carregar nada: os dados vêm quando a tela é aberta (recarregar)
+        abaAtiva = abaLivros;
+        cards.show(painelCards, abaLivros.chave);
+        estilizarAbas();
+    }
+
+    /** Chamado pelo App ao abrir a Biblioteca: recarrega a aba que estiver selecionada. */
+    public void recarregar() {
+        mostrarAba(abaAtiva);
+    }
+
+    // =========================================================================
+    // MONTAGEM DA INTERFACE
+    // Cabeçalho com as abas, rodapé e o conteúdo (barra de botões + tabela) de cada aba.
+    // =========================================================================
+
+    /** Título "Biblioteca" + botões das abas (mesmo estilo da tela de Recargas). */
+    private JPanel montarTopo() {
         JLabel lblTitulo = new JLabel("Biblioteca");
         lblTitulo.setFont(new Font("Segoe UI", Font.BOLD, 22));
         lblTitulo.setForeground(Color.WHITE);
@@ -130,17 +172,11 @@ public class TelaBiblioteca extends JPanel {
         topo.setOpaque(false);
         topo.add(lblTitulo, BorderLayout.NORTH);
         topo.add(abas, BorderLayout.CENTER);
-        add(topo, BorderLayout.NORTH);
+        return topo;
+    }
 
-        // Conteúdo de cada aba
-        painelCards.setOpaque(false);
-        painelCards.add(montarAbaLivros(), abaLivros.chave);
-        painelCards.add(montarAbaFichas(), abaFichas.chave);
-        painelCards.add(montarAbaDoacaoLivros(), abaDoacaoLivros.chave);
-        painelCards.add(montarAbaDoacaoSangue(), abaDoacaoSangue.chave);
-        add(painelCards, BorderLayout.CENTER);
-
-        // Rodapé: total da aba + regra
+    /** Rodapé: total de registros da aba à esquerda e a regra dos créditos à direita. */
+    private JPanel montarRodape() {
         JPanel rodape = new JPanel(new BorderLayout());
         rodape.setOpaque(false);
         rodape.setPreferredSize(new Dimension(0, 35));
@@ -151,28 +187,12 @@ public class TelaBiblioteca extends JPanel {
         lblRegra.setForeground(TEXTO_SUAVE);
         rodape.add(lblTotal, BorderLayout.WEST);
         rodape.add(lblRegra, BorderLayout.EAST);
-        add(rodape, BorderLayout.SOUTH);
-
-        // Abre na primeira aba sem carregar nada: os dados vêm quando a tela é aberta (recarregar)
-        abaAtiva = abaLivros;
-        cards.show(painelCards, abaLivros.chave);
-        estilizarAbas();
-    }
-
-    /** Chamado pelo App ao abrir a Biblioteca: recarrega a aba que estiver selecionada. */
-    public void recarregar() {
-        mostrarAba(abaAtiva);
+        return rodape;
     }
 
     private JPanel montarAbaLivros() {
         JButton btnNovo = criarBotao("+ Novo Livro", true, 150);
         btnNovo.addActionListener(e -> abrirFormLivro(null));
-
-        JButton btnEditar = criarBotao("Editar", false, 100);
-        btnEditar.addActionListener(e -> {
-            Object[] linha = abaLivros.linhaSelecionada();
-            if (linha != null) abrirFormLivro(linha);
-        });
 
         JButton btnExcluir = Exclusao.criarBotao();
         btnExcluir.addActionListener(e -> {
@@ -180,34 +200,13 @@ public class TelaBiblioteca extends JPanel {
             if (linha != null) excluirLivro(linha);
         });
 
-        return abaLivros.montar(montarBarra(abaLivros, btnExcluir, btnEditar, btnNovo));
-    }
-
-    /** Exclui um livro (só se não houver fichas ou doações ligadas a ele). */
-    private void excluirLivro(Object[] linha) {
-        if (!Exclusao.confirmar(this, "o livro " + linha[1])) {
-            return;
-        }
-        try (Connection con = Conexao.conectar();
-                PreparedStatement ps = con.prepareStatement("DELETE FROM livros WHERE ID_Livro = ?")) {
-            ps.setLong(1, idDe(linha[0]));
-            ps.executeUpdate();
-        } catch (SQLException ex) {
-            Exclusao.erro(this, ex);
-            return;
-        }
-        abaLivros.carregar();
+        return abaLivros.montar(montarBarra(abaLivros, btnExcluir,
+                criarBotaoEditar(abaLivros, this::abrirFormLivro), btnNovo));
     }
 
     private JPanel montarAbaFichas() {
         JButton btnNovo = criarBotao("+ Nova Ficha", true, 150);
         btnNovo.addActionListener(e -> abrirFormFicha(null));
-
-        JButton btnEditar = criarBotao("Editar", false, 100);
-        btnEditar.addActionListener(e -> {
-            Object[] linha = abaFichas.linhaSelecionada();
-            if (linha != null) abrirFormFicha(linha);
-        });
 
         JButton btnAprovar = criarBotao("Aprovar", false, 120);
         btnAprovar.addActionListener(e -> {
@@ -218,36 +217,37 @@ public class TelaBiblioteca extends JPanel {
                 return;
             }
             long id = idDe(linha[0]);
-            executarAcao(() -> aprovarFicha(id), () -> abaFichas.carregar());
+            if (executar(this, () -> aprovarFicha(id))) {
+                abaFichas.carregar();
+            }
         });
 
-        return abaFichas.montar(montarBarra(abaFichas, btnAprovar, btnEditar, btnNovo));
+        return abaFichas.montar(montarBarra(abaFichas, btnAprovar,
+                criarBotaoEditar(abaFichas, this::abrirFormFicha), btnNovo));
     }
 
     private JPanel montarAbaDoacaoLivros() {
         JButton btnNovo = criarBotao("+ Nova Doação", true, 150);
         btnNovo.addActionListener(e -> abrirFormDoacaoLivro(null));
-
-        JButton btnEditar = criarBotao("Editar", false, 100);
-        btnEditar.addActionListener(e -> {
-            Object[] linha = abaDoacaoLivros.linhaSelecionada();
-            if (linha != null) abrirFormDoacaoLivro(linha);
-        });
-
-        return abaDoacaoLivros.montar(montarBarra(abaDoacaoLivros, btnEditar, btnNovo));
+        return abaDoacaoLivros.montar(montarBarra(abaDoacaoLivros,
+                criarBotaoEditar(abaDoacaoLivros, this::abrirFormDoacaoLivro), btnNovo));
     }
 
     private JPanel montarAbaDoacaoSangue() {
         JButton btnNovo = criarBotao("+ Nova Doação", true, 150);
         btnNovo.addActionListener(e -> abrirFormDoacaoSangue(null));
+        return abaDoacaoSangue.montar(montarBarra(abaDoacaoSangue,
+                criarBotaoEditar(abaDoacaoSangue, this::abrirFormDoacaoSangue), btnNovo));
+    }
 
+    /** Botão "Editar": abre o formulário da aba com os dados da linha selecionada. */
+    private JButton criarBotaoEditar(Aba aba, Consumer<Object[]> abrirForm) {
         JButton btnEditar = criarBotao("Editar", false, 100);
         btnEditar.addActionListener(e -> {
-            Object[] linha = abaDoacaoSangue.linhaSelecionada();
-            if (linha != null) abrirFormDoacaoSangue(linha);
+            Object[] linha = aba.linhaSelecionada();
+            if (linha != null) abrirForm.accept(linha);
         });
-
-        return abaDoacaoSangue.montar(montarBarra(abaDoacaoSangue, btnEditar, btnNovo));
+        return btnEditar;
     }
 
     /** Barra de cada aba: busca à esquerda, botões à direita. */
@@ -268,9 +268,10 @@ public class TelaBiblioteca extends JPanel {
         return barra;
     }
 
-    // ---------------------------------------------------------------
-    // ABAS
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // TROCA DE ABAS
+    // Mostra a aba escolhida, destaca o botão dela e atualiza o total do rodapé.
+    // =========================================================================
     private void mostrarAba(Aba aba) {
         abaAtiva = aba;
         cards.show(painelCards, aba.chave);
@@ -296,25 +297,18 @@ public class TelaBiblioteca extends JPanel {
         lblTotal.setText("Total: " + n + (n == 1 ? " " + a.singular : " " + a.plural));
     }
 
-    // ---------------------------------------------------------------
-    // CARGA DOS DADOS (rodam em segundo plano)
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // CARREGAMENTO DE DADOS (BANCO)
+    // Consultas que preenchem as tabelas (rodam em segundo plano) e as listas dos formulários.
+    // =========================================================================
     private List<Object[]> carregarLivros() throws SQLException {
-        String sql = "SELECT ID_Livro, `Título`, Autor, Qtd_Disponivel FROM livros ORDER BY ID_Livro";
-        List<Object[]> linhas = new ArrayList<>();
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement(sql);
-                ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                linhas.add(new Object[] {
+        return consultar("SELECT ID_Livro, `Título`, Autor, Qtd_Disponivel FROM livros ORDER BY ID_Livro",
+                rs -> new Object[] {
                         formatarId(rs.getLong(1)),
                         rs.getString(2),
                         rs.getString(3),
                         rs.getLong(4)
                 });
-            }
-        }
-        return linhas;
     }
 
     private List<Object[]> carregarFichas() throws SQLException {
@@ -325,27 +319,21 @@ public class TelaBiblioteca extends JPanel {
                 + "JOIN livros l ON l.ID_Livro = fl.ID_Livro "
                 + "LEFT JOIN `funcionários` f ON f.ID_Funcionário = fl.ID_Funcionário "
                 + "ORDER BY fl.ID_Ficha";
-        List<Object[]> linhas = new ArrayList<>();
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement(sql);
-                ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                boolean aprovada = rs.getBoolean(7);
-                linhas.add(new Object[] {
-                        formatarId(rs.getLong(1)),
-                        rs.getString(2),
-                        rs.getString(3),
-                        formatarData(rs.getDate(4)),
-                        rs.getLong(5),
-                        nvl(rs.getString(6)),
-                        aprovada ? STATUS_APROVADA : STATUS_PENDENTE,
-                        rs.getLong(8),
-                        rs.getLong(9),
-                        aprovada
-                });
-            }
-        }
-        return linhas;
+        return consultar(sql, rs -> {
+            boolean aprovada = rs.getBoolean(7);
+            return new Object[] {
+                    formatarId(rs.getLong(1)),
+                    rs.getString(2),
+                    rs.getString(3),
+                    formatarData(rs.getDate(4)),
+                    rs.getLong(5),
+                    nvl(rs.getString(6)),
+                    aprovada ? STATUS_APROVADA : STATUS_PENDENTE,
+                    rs.getLong(8),
+                    rs.getLong(9),
+                    aprovada
+            };
+        });
     }
 
     private List<Object[]> carregarDoacoesLivros() throws SQLException {
@@ -356,24 +344,16 @@ public class TelaBiblioteca extends JPanel {
                 + "JOIN livros l ON l.ID_Livro = d.ID_Livro "
                 + "LEFT JOIN `funcionários` f ON f.ID_Funcionário = d.ID_Funcionário "
                 + "ORDER BY d.ID_Doação";
-        List<Object[]> linhas = new ArrayList<>();
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement(sql);
-                ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                linhas.add(new Object[] {
-                        formatarId(rs.getLong(1)),
-                        rs.getString(2),
-                        rs.getString(3),
-                        formatarData(rs.getDate(4)),
-                        rs.getLong(5),
-                        nvl(rs.getString(6)),
-                        rs.getLong(7),
-                        rs.getLong(8)
-                });
-            }
-        }
-        return linhas;
+        return consultar(sql, rs -> new Object[] {
+                formatarId(rs.getLong(1)),
+                rs.getString(2),
+                rs.getString(3),
+                formatarData(rs.getDate(4)),
+                rs.getLong(5),
+                nvl(rs.getString(6)),
+                rs.getLong(7),
+                rs.getLong(8)
+        });
     }
 
     private List<Object[]> carregarDoacoesSangue() throws SQLException {
@@ -382,55 +362,50 @@ public class TelaBiblioteca extends JPanel {
                 + "JOIN clientes c ON c.ID_Cliente = d.ID_Cliente "
                 + "LEFT JOIN `funcionários` f ON f.ID_Funcionário = d.ID_Funcionário "
                 + "ORDER BY d.ID_Doação";
-        List<Object[]> linhas = new ArrayList<>();
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement(sql);
-                ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                linhas.add(new Object[] {
-                        formatarId(rs.getLong(1)),
-                        rs.getString(2),
-                        formatarData(rs.getDate(3)),
-                        rs.getLong(4),
-                        nvl(rs.getString(5)),
-                        rs.getLong(6)
-                });
-            }
-        }
-        return linhas;
+        return consultar(sql, rs -> new Object[] {
+                formatarId(rs.getLong(1)),
+                rs.getString(2),
+                formatarData(rs.getDate(3)),
+                rs.getLong(4),
+                nvl(rs.getString(5)),
+                rs.getLong(6)
+        });
     }
 
+    /** Clientes para o combo dos formulários ("001 - Nome"). */
     private static List<Opcao> listarClientes() throws SQLException {
-        List<Opcao> lista = new ArrayList<>();
-        String sql = "SELECT ID_Cliente, Nome_Completo FROM clientes ORDER BY Nome_Completo";
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement(sql);
-                ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                long id = rs.getLong(1);
-                lista.add(new Opcao(id, formatarId(id) + " - " + rs.getString(2)));
-            }
-        }
-        return lista;
+        return consultar("SELECT ID_Cliente, Nome_Completo FROM clientes ORDER BY Nome_Completo", rs -> {
+            long id = rs.getLong(1);
+            return new Opcao(id, formatarId(id) + " - " + rs.getString(2));
+        });
     }
 
+    /** Livros para o combo dos formulários ("001 - Título (Autor)"). */
     private static List<Opcao> listarLivros() throws SQLException {
-        List<Opcao> lista = new ArrayList<>();
-        String sql = "SELECT ID_Livro, `Título`, Autor FROM livros ORDER BY `Título`";
+        return consultar("SELECT ID_Livro, `Título`, Autor FROM livros ORDER BY `Título`", rs -> {
+            long id = rs.getLong(1);
+            return new Opcao(id, formatarId(id) + " - " + rs.getString(2) + " (" + rs.getString(3) + ")");
+        });
+    }
+
+    /** Executa um SELECT e transforma cada linha do resultado num item da lista. */
+    private static <T> List<T> consultar(String sql, LeitorLinha<T> leitor) throws SQLException {
+        List<T> lista = new ArrayList<>();
         try (Connection con = conectar();
                 PreparedStatement ps = con.prepareStatement(sql);
                 ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                long id = rs.getLong(1);
-                lista.add(new Opcao(id, formatarId(id) + " - " + rs.getString(2) + " (" + rs.getString(3) + ")"));
+                lista.add(leitor.ler(rs));
             }
         }
         return lista;
     }
 
-    // ---------------------------------------------------------------
-    // FORMULÁRIOS (cadastro e edição)
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // FORMULÁRIOS (CADASTRO E EDIÇÃO)
+    // Cada formulário recebe a linha selecionada (edição) ou null (novo registro),
+    // valida os campos e chama o método de gravação correspondente.
+    // =========================================================================
     private void abrirFormLivro(Object[] linha) {
         boolean edicao = linha != null;
         JTextField txtTitulo = criarCampoTexto();
@@ -494,7 +469,7 @@ public class TelaBiblioteca extends JPanel {
                 () -> {
                     Opcao cli = escolhido(cmbCliente, "Selecione o cliente.");
                     Opcao liv = escolhido(cmbLivro, "Selecione o livro.");
-                    long cred = lerInteiro(txtCred.getText(), "Os créditos devem ser um número inteiro maior ou igual a zero.");
+                    long cred = lerInteiro(txtCred.getText(), MSG_CREDITOS);
                     boolean aprovada = STATUS_APROVADA.equals(cmbStatus.getSelectedItem());
                     gravarFicha(id, cli.id, liv.id, cred, aprovada);
                 },
@@ -529,7 +504,7 @@ public class TelaBiblioteca extends JPanel {
                 () -> {
                     Opcao cli = escolhido(cmbCliente, "Selecione o cliente.");
                     Opcao liv = escolhido(cmbLivro, "Selecione o livro.");
-                    long cred = lerInteiro(txtCred.getText(), "Os créditos devem ser um número inteiro maior ou igual a zero.");
+                    long cred = lerInteiro(txtCred.getText(), MSG_CREDITOS);
                     gravarDoacaoLivro(id, cli.id, liv.id, cred);
                 },
                 () -> abaDoacaoLivros.carregar());
@@ -558,7 +533,7 @@ public class TelaBiblioteca extends JPanel {
                 new JComponent[] { cmbCliente, txtCred },
                 () -> {
                     Opcao cli = escolhido(cmbCliente, "Selecione o cliente.");
-                    long cred = lerInteiro(txtCred.getText(), "Os créditos devem ser um número inteiro maior ou igual a zero.");
+                    long cred = lerInteiro(txtCred.getText(), MSG_CREDITOS);
                     gravarDoacaoSangue(id, cli.id, cred);
                 },
                 () -> abaDoacaoSangue.carregar());
@@ -586,17 +561,10 @@ public class TelaBiblioteca extends JPanel {
 
         JButton btnSalvar = criarBotao("Salvar", true, 110);
         btnSalvar.addActionListener(e -> {
-            try {
-                acao.executar();
-            } catch (ErroValidacao ex) {
-                JOptionPane.showMessageDialog(modal, ex.getMessage(), "Aviso", JOptionPane.WARNING_MESSAGE);
-                return;
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(modal, "Erro no banco:\n" + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
-                return;
+            if (executar(modal, acao)) {
+                modal.dispose();
+                aoSalvar.run();
             }
-            modal.dispose();
-            aoSalvar.run();
         });
 
         botoes.add(btnCancelar);
@@ -609,18 +577,20 @@ public class TelaBiblioteca extends JPanel {
         modal.setVisible(true);
     }
 
-    /** Executa uma ação de banco fora de um modal (ex.: aprovar ficha) e mostra o erro, se houver. */
-    private void executarAcao(Acao acao, Runnable aoSucesso) {
+    /**
+     * Roda uma ação de banco e mostra o problema, se houver: erro de validação vira aviso,
+     * qualquer outro vira "Erro no banco". Retorna true se deu certo.
+     */
+    private static boolean executar(Component pai, Acao acao) {
         try {
             acao.executar();
+            return true;
         } catch (ErroValidacao ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Aviso", JOptionPane.WARNING_MESSAGE);
-            return;
+            JOptionPane.showMessageDialog(pai, ex.getMessage(), "Aviso", JOptionPane.WARNING_MESSAGE);
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Erro no banco:\n" + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
-            return;
+            JOptionPane.showMessageDialog(pai, "Erro no banco:\n" + ex.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
         }
-        aoSucesso.run();
+        return false;
     }
 
     private void erroCarga(Exception ex) {
@@ -628,9 +598,10 @@ public class TelaBiblioteca extends JPanel {
                 "Erro", JOptionPane.ERROR_MESSAGE);
     }
 
-    // ---------------------------------------------------------------
-    // GRAVAÇÃO NO BANCO
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // AÇÕES NO BANCO (GRAVAR / APROVAR / EXCLUIR)
+    // Tudo que mexe em créditos roda numa transação: ou grava tudo, ou desfaz tudo (rollback).
+    // =========================================================================
     private void gravarLivro(Long id, String titulo, String autor, long qtd) throws Exception {
         String sql = id == null
                 ? "INSERT INTO livros (`Título`, Autor, Qtd_Disponivel) VALUES (?, ?, ?)"
@@ -647,76 +618,78 @@ public class TelaBiblioteca extends JPanel {
         }
     }
 
+    /** Exclui um livro (só se não houver fichas ou doações ligadas a ele). */
+    private void excluirLivro(Object[] linha) {
+        if (!Exclusao.confirmar(this, "o livro " + linha[1])) {
+            return;
+        }
+        try (Connection con = Conexao.conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM livros WHERE ID_Livro = ?")) {
+            ps.setLong(1, idDe(linha[0]));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        abaLivros.carregar();
+    }
+
     /**
      * Grava a ficha. Se a ficha estiver (ou ficar) aprovada, os créditos entram no cartão do cliente
      * na mesma transação. Na edição, só a diferença é ajustada.
      */
     private void gravarFicha(Long id, long idCliente, long idLivro, long creditos, boolean aprovada) throws Exception {
-        try (Connection con = conectar()) {
-            con.setAutoCommit(false);
-            try {
-                long idResp = idLogado();
-                if (id == null) {
-                    try (PreparedStatement ps = con.prepareStatement(
-                            "INSERT INTO ficha_leitura (ID_Cliente, ID_Livro, ID_Funcionário, Créditos_Recebidos, Ativo) "
-                                    + "VALUES (?, ?, ?, ?, ?)")) {
-                        ps.setLong(1, idCliente);
-                        ps.setLong(2, idLivro);
-                        ps.setLong(3, idResp);
-                        ps.setLong(4, creditos);
-                        ps.setBoolean(5, aprovada);
-                        ps.executeUpdate();
-                    }
-                    ajustarCreditos(con, idCliente, 0, idCliente, aprovada ? creditos : 0);
-                } else {
-                    long[] antiga = lerValores(con, SQL_FICHA_TRAVADA, id);
-                    boolean eraAprovada = antiga[4] != 0;
-                    ajustarCreditos(con, antiga[0], eraAprovada ? antiga[2] : 0, idCliente, aprovada ? creditos : 0);
-                    // quem aprova passa a ser o responsável pela ficha
-                    long resp = (!eraAprovada && aprovada) ? idResp : antiga[3];
-                    try (PreparedStatement ps = con.prepareStatement(
-                            "UPDATE ficha_leitura SET ID_Cliente = ?, ID_Livro = ?, Créditos_Recebidos = ?, "
-                                    + "ID_Funcionário = ?, Ativo = ? WHERE ID_Ficha = ?")) {
-                        ps.setLong(1, idCliente);
-                        ps.setLong(2, idLivro);
-                        ps.setLong(3, creditos);
-                        ps.setLong(4, resp);
-                        ps.setBoolean(5, aprovada);
-                        ps.setLong(6, id);
-                        ps.executeUpdate();
-                    }
+        emTransacao(con -> {
+            long idResp = idLogado();
+            if (id == null) {
+                try (PreparedStatement ps = con.prepareStatement(
+                        "INSERT INTO ficha_leitura (ID_Cliente, ID_Livro, ID_Funcionário, Créditos_Recebidos, Ativo, Data_) "
+                                + "VALUES (?, ?, ?, ?, ?, CURDATE())")) {
+                    ps.setLong(1, idCliente);
+                    ps.setLong(2, idLivro);
+                    ps.setLong(3, idResp);
+                    ps.setLong(4, creditos);
+                    ps.setBoolean(5, aprovada);
+                    ps.executeUpdate();
                 }
-                con.commit();
-            } catch (Exception e) {
-                con.rollback();
-                throw e;
+                ajustarCreditos(con, idCliente, 0, idCliente, aprovada ? creditos : 0);
+            } else {
+                long[] antiga = lerValores(con, SQL_FICHA_TRAVADA, id);
+                boolean eraAprovada = antiga[4] != 0;
+                ajustarCreditos(con, antiga[0], eraAprovada ? antiga[2] : 0, idCliente, aprovada ? creditos : 0);
+                // quem aprova passa a ser o responsável pela ficha
+                long resp = (!eraAprovada && aprovada) ? idResp : antiga[3];
+                try (PreparedStatement ps = con.prepareStatement(
+                        "UPDATE ficha_leitura SET ID_Cliente = ?, ID_Livro = ?, Créditos_Recebidos = ?, "
+                                + "ID_Funcionário = ?, Ativo = ? WHERE ID_Ficha = ?")) {
+                    ps.setLong(1, idCliente);
+                    ps.setLong(2, idLivro);
+                    ps.setLong(3, creditos);
+                    ps.setLong(4, resp);
+                    ps.setBoolean(5, aprovada);
+                    ps.setLong(6, id);
+                    ps.executeUpdate();
+                }
             }
-        }
+        });
     }
 
     /** Aprova uma ficha pendente: créditos entram no cartão e o aprovador vira o responsável. */
     private void aprovarFicha(long id) throws Exception {
-        try (Connection con = conectar()) {
-            con.setAutoCommit(false);
-            try {
-                long idResp = idLogado();
-                long[] ficha = lerValores(con, SQL_FICHA_TRAVADA, id);
-                if (ficha[4] != 0) {
-                    throw new ErroValidacao("Esta ficha já está aprovada.");
-                }
-                ajustarCreditos(con, ficha[0], 0, ficha[0], ficha[2]);
-                try (PreparedStatement ps = con.prepareStatement(
-                        "UPDATE ficha_leitura SET Ativo = TRUE, ID_Funcionário = ? WHERE ID_Ficha = ?")) {
-                    ps.setLong(1, idResp);
-                    ps.setLong(2, id);
-                    ps.executeUpdate();
-                }
-                con.commit();
-            } catch (Exception e) {
-                con.rollback();
-                throw e;
+        emTransacao(con -> {
+            long idResp = idLogado();
+            long[] ficha = lerValores(con, SQL_FICHA_TRAVADA, id);
+            if (ficha[4] != 0) {
+                throw new ErroValidacao("Esta ficha já está aprovada.");
             }
-        }
+            ajustarCreditos(con, ficha[0], 0, ficha[0], ficha[2]);
+            try (PreparedStatement ps = con.prepareStatement(
+                    "UPDATE ficha_leitura SET Ativo = TRUE, ID_Funcionário = ? WHERE ID_Ficha = ?")) {
+                ps.setLong(1, idResp);
+                ps.setLong(2, id);
+                ps.executeUpdate();
+            }
+        });
     }
 
     /**
@@ -724,76 +697,77 @@ public class TelaBiblioteca extends JPanel {
      * Na edição, troca o livro corrige o estoque de um e do outro.
      */
     private void gravarDoacaoLivro(Long id, long idCliente, long idLivro, long creditos) throws Exception {
-        try (Connection con = conectar()) {
-            con.setAutoCommit(false);
-            try {
-                long idResp = idLogado();
-                if (id == null) {
-                    try (PreparedStatement ps = con.prepareStatement(
-                            "INSERT INTO `doação_livros` (ID_Cliente, ID_Livro, ID_Funcionário, Créditos_Recebidos) "
-                                    + "VALUES (?, ?, ?, ?)")) {
-                        ps.setLong(1, idCliente);
-                        ps.setLong(2, idLivro);
-                        ps.setLong(3, idResp);
-                        ps.setLong(4, creditos);
-                        ps.executeUpdate();
-                    }
-                    ajustarCreditos(con, idCliente, 0, idCliente, creditos);
-                    somarExemplares(con, idLivro, 1);
-                } else {
-                    long[] antiga = lerValores(con,
-                            "SELECT ID_Cliente, ID_Livro, Créditos_Recebidos FROM `doação_livros` WHERE ID_Doação = ? FOR UPDATE",
-                            id);
-                    ajustarCreditos(con, antiga[0], antiga[2], idCliente, creditos);
-                    if (antiga[1] != idLivro) {
-                        somarExemplares(con, antiga[1], -1);
-                        somarExemplares(con, idLivro, 1);
-                    }
-                    try (PreparedStatement ps = con.prepareStatement(
-                            "UPDATE `doação_livros` SET ID_Cliente = ?, ID_Livro = ?, Créditos_Recebidos = ? "
-                                    + "WHERE ID_Doação = ?")) {
-                        ps.setLong(1, idCliente);
-                        ps.setLong(2, idLivro);
-                        ps.setLong(3, creditos);
-                        ps.setLong(4, id);
-                        ps.executeUpdate();
-                    }
+        emTransacao(con -> {
+            long idResp = idLogado();
+            if (id == null) {
+                try (PreparedStatement ps = con.prepareStatement(
+                        "INSERT INTO `doação_livros` (ID_Cliente, ID_Livro, ID_Funcionário, Créditos_Recebidos, Data_) "
+                                + "VALUES (?, ?, ?, ?, CURDATE())")) {
+                    ps.setLong(1, idCliente);
+                    ps.setLong(2, idLivro);
+                    ps.setLong(3, idResp);
+                    ps.setLong(4, creditos);
+                    ps.executeUpdate();
                 }
-                con.commit();
-            } catch (Exception e) {
-                con.rollback();
-                throw e;
+                ajustarCreditos(con, idCliente, 0, idCliente, creditos);
+                somarExemplares(con, idLivro, 1);
+            } else {
+                long[] antiga = lerValores(con,
+                        "SELECT ID_Cliente, ID_Livro, Créditos_Recebidos FROM `doação_livros` WHERE ID_Doação = ? FOR UPDATE",
+                        id);
+                ajustarCreditos(con, antiga[0], antiga[2], idCliente, creditos);
+                if (antiga[1] != idLivro) {
+                    somarExemplares(con, antiga[1], -1);
+                    somarExemplares(con, idLivro, 1);
+                }
+                try (PreparedStatement ps = con.prepareStatement(
+                        "UPDATE `doação_livros` SET ID_Cliente = ?, ID_Livro = ?, Créditos_Recebidos = ? "
+                                + "WHERE ID_Doação = ?")) {
+                    ps.setLong(1, idCliente);
+                    ps.setLong(2, idLivro);
+                    ps.setLong(3, creditos);
+                    ps.setLong(4, id);
+                    ps.executeUpdate();
+                }
             }
-        }
+        });
     }
 
     /** Doação de sangue: comprovante apresentado pelo cliente gera créditos no cartão. */
     private void gravarDoacaoSangue(Long id, long idCliente, long creditos) throws Exception {
+        emTransacao(con -> {
+            long idResp = idLogado();
+            if (id == null) {
+                try (PreparedStatement ps = con.prepareStatement(
+                        "INSERT INTO `doação_sangue` (ID_Cliente, ID_Funcionário, Créditos_Recebidos, Data_) "
+                                + "VALUES (?, ?, ?, CURDATE())")) {
+                    ps.setLong(1, idCliente);
+                    ps.setLong(2, idResp);
+                    ps.setLong(3, creditos);
+                    ps.executeUpdate();
+                }
+                ajustarCreditos(con, idCliente, 0, idCliente, creditos);
+            } else {
+                long[] antiga = lerValores(con,
+                        "SELECT ID_Cliente, Créditos_Recebidos FROM `doação_sangue` WHERE ID_Doação = ? FOR UPDATE", id);
+                ajustarCreditos(con, antiga[0], antiga[1], idCliente, creditos);
+                try (PreparedStatement ps = con.prepareStatement(
+                        "UPDATE `doação_sangue` SET ID_Cliente = ?, Créditos_Recebidos = ? WHERE ID_Doação = ?")) {
+                    ps.setLong(1, idCliente);
+                    ps.setLong(2, creditos);
+                    ps.setLong(3, id);
+                    ps.executeUpdate();
+                }
+            }
+        });
+    }
+
+    /** Abre uma transação, roda o trabalho e confirma (commit); se algo falhar, desfaz tudo (rollback). */
+    private static void emTransacao(TrabalhoBanco trabalho) throws Exception {
         try (Connection con = conectar()) {
             con.setAutoCommit(false);
             try {
-                long idResp = idLogado();
-                if (id == null) {
-                    try (PreparedStatement ps = con.prepareStatement(
-                            "INSERT INTO `doação_sangue` (ID_Cliente, ID_Funcionário, Créditos_Recebidos) VALUES (?, ?, ?)")) {
-                        ps.setLong(1, idCliente);
-                        ps.setLong(2, idResp);
-                        ps.setLong(3, creditos);
-                        ps.executeUpdate();
-                    }
-                    ajustarCreditos(con, idCliente, 0, idCliente, creditos);
-                } else {
-                    long[] antiga = lerValores(con,
-                            "SELECT ID_Cliente, Créditos_Recebidos FROM `doação_sangue` WHERE ID_Doação = ? FOR UPDATE", id);
-                    ajustarCreditos(con, antiga[0], antiga[1], idCliente, creditos);
-                    try (PreparedStatement ps = con.prepareStatement(
-                            "UPDATE `doação_sangue` SET ID_Cliente = ?, Créditos_Recebidos = ? WHERE ID_Doação = ?")) {
-                        ps.setLong(1, idCliente);
-                        ps.setLong(2, creditos);
-                        ps.setLong(3, id);
-                        ps.executeUpdate();
-                    }
-                }
+                trabalho.executar(con);
                 con.commit();
             } catch (Exception e) {
                 con.rollback();
@@ -816,6 +790,7 @@ public class TelaBiblioteca extends JPanel {
         }
     }
 
+    /** Soma (ou subtrai) créditos no primeiro cartão do cliente. */
     private static void somarCreditos(Connection con, long idCliente, long delta) throws SQLException, ErroValidacao {
         if (delta == 0) return;
         try (PreparedStatement ps = con.prepareStatement(
@@ -828,6 +803,7 @@ public class TelaBiblioteca extends JPanel {
         }
     }
 
+    /** Soma (ou subtrai) exemplares disponíveis de um livro. */
     private static void somarExemplares(Connection con, long idLivro, long delta) throws SQLException, ErroValidacao {
         if (delta == 0) return;
         try (PreparedStatement ps = con.prepareStatement(
@@ -866,15 +842,19 @@ public class TelaBiblioteca extends JPanel {
         return Long.parseLong(f.getId());
     }
 
-    // ---------------------------------------------------------------
-    // HELPERS
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // UTILITÁRIOS
+    // Conexão, conversões/formatação de valores e execução em segundo plano.
+    // =========================================================================
+
+    /** Conexao.conectar() devolve null quando falha; aqui vira exceção. */
     private static Connection conectar() throws SQLException {
         Connection con = Conexao.conectar();
         if (con == null) throw new SQLException("Não foi possível conectar ao banco de dados.");
         return con;
     }
 
+    /** Converte o texto num inteiro >= 0; senão lança o erro com a mensagem dada. */
     private static long lerInteiro(String texto, String mensagem) throws ErroValidacao {
         try {
             long v = Long.parseLong(texto.trim());
@@ -885,12 +865,14 @@ public class TelaBiblioteca extends JPanel {
         }
     }
 
+    /** Item escolhido no combo; erro se nada foi escolhido. */
     private static Opcao escolhido(JComboBox<Opcao> cmb, String mensagem) throws ErroValidacao {
         Object o = cmb.getSelectedItem();
         if (!(o instanceof Opcao)) throw new ErroValidacao(mensagem);
         return (Opcao) o;
     }
 
+    /** Seleciona no combo o item com o ID informado (usado ao abrir uma edição). */
     private static void selecionar(JComboBox<Opcao> cmb, long id) {
         for (int i = 0; i < cmb.getItemCount(); i++) {
             if (cmb.getItemAt(i).id == id) {
@@ -916,48 +898,7 @@ public class TelaBiblioteca extends JPanel {
         return s == null ? "" : s;
     }
 
-    /** Erro esperado de regra de negócio/validação: mostrado como aviso, sem detalhes técnicos. */
-    private static final class ErroValidacao extends Exception {
-        private static final long serialVersionUID = 1L;
-
-        ErroValidacao(String mensagem) {
-            super(mensagem);
-        }
-    }
-
-    @FunctionalInterface
-    private interface Acao {
-        void executar() throws Exception;
-    }
-
-    /** Item de lista (cliente ou livro): guarda o ID e mostra um texto. */
-    private static final class Opcao {
-        final long id;
-        final String texto;
-
-        Opcao(long id, String texto) {
-            this.id = id;
-            this.texto = texto;
-        }
-
-        @Override
-        public String toString() {
-            return texto;
-        }
-    }
-
-    private JComboBox<Opcao> criarCombo(List<Opcao> opcoes) {
-        JComboBox<Opcao> cmb = new JComboBox<>(opcoes.toArray(new Opcao[0]));
-        estilizarCombo(cmb);
-        return cmb;
-    }
-
-    private <T> void estilizarCombo(JComboBox<T> cmb) {
-        cmb.setBackground(FUNDO);
-        cmb.setForeground(Color.WHITE);
-        cmb.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-    }
-
+    /** Roda a tarefa fora da tela (SwingWorker) e devolve o resultado (ou o erro) na thread da interface. */
     private <T> void async(Callable<T> tarefa, Consumer<T> aoConcluir, Consumer<Exception> aoFalhar) {
         new SwingWorker<T, Void>() {
             @Override protected T doInBackground() throws Exception { return tarefa.call(); }
@@ -972,6 +913,23 @@ public class TelaBiblioteca extends JPanel {
         }.execute();
     }
 
+    // =========================================================================
+    // COMPONENTES VISUAIS (FÁBRICAS DE ESTILO)
+    // Criam botões, campos, combos, rótulos, busca e abas com o visual escuro do sistema.
+    // =========================================================================
+    private JComboBox<Opcao> criarCombo(List<Opcao> opcoes) {
+        JComboBox<Opcao> cmb = new JComboBox<>(opcoes.toArray(new Opcao[0]));
+        estilizarCombo(cmb);
+        return cmb;
+    }
+
+    private <T> void estilizarCombo(JComboBox<T> cmb) {
+        cmb.setBackground(FUNDO);
+        cmb.setForeground(Color.WHITE);
+        cmb.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+    }
+
+    /** Campo de busca arredondado com lupa e texto de exemplo (placeholder). */
     private JPanel criarBusca(String placeholder, Consumer<String> aoDigitar) {
         JPanel painel = new JPanel(new BorderLayout(8, 0)) {
             @Override
@@ -1025,6 +983,7 @@ public class TelaBiblioteca extends JPanel {
         return painel;
     }
 
+    /** Botão arredondado: azul (primário) ou cinza-azulado (secundário). */
     private JButton criarBotao(String texto, boolean primario, int largura) {
         JButton b = new JButton(texto) {
             @Override
@@ -1075,6 +1034,7 @@ public class TelaBiblioteca extends JPanel {
         return b;
     }
 
+    /** Aba ativa: texto branco e sublinhado azul. Inativa: texto apagado e sem sublinhado. */
     private void estilizarAba(JButton b, boolean ativa) {
         b.setForeground(ativa ? Color.WHITE : TEXTO_SUAVE);
         b.setBorder(BorderFactory.createCompoundBorder(
@@ -1082,9 +1042,56 @@ public class TelaBiblioteca extends JPanel {
                 BorderFactory.createEmptyBorder(6, 4, 6, 4)));
     }
 
-    // ---------------------------------------------------------------
-    // ABA: tabela + busca + ghost loading (uma por aba)
-    // ---------------------------------------------------------------
+    // =========================================================================
+    // CLASSES INTERNAS
+    // Tipos auxiliares (erro de validação, interfaces de ação, item de combo),
+    // a classe Aba (tabela + busca + carregamento) e o efeito de "ghost loading".
+    // =========================================================================
+
+    /** Erro esperado de regra de negócio/validação: mostrado como aviso, sem detalhes técnicos. */
+    private static final class ErroValidacao extends Exception {
+        private static final long serialVersionUID = 1L;
+
+        ErroValidacao(String mensagem) {
+            super(mensagem);
+        }
+    }
+
+    /** Ação que pode falhar (validação ou banco). */
+    @FunctionalInterface
+    private interface Acao {
+        void executar() throws Exception;
+    }
+
+    /** Trabalho feito dentro de uma transação, recebendo a conexão aberta. */
+    @FunctionalInterface
+    private interface TrabalhoBanco {
+        void executar(Connection con) throws Exception;
+    }
+
+    /** Converte a linha atual de um ResultSet em um objeto. */
+    @FunctionalInterface
+    private interface LeitorLinha<T> {
+        T ler(ResultSet rs) throws SQLException;
+    }
+
+    /** Item de lista (cliente ou livro): guarda o ID e mostra um texto. */
+    private static final class Opcao {
+        final long id;
+        final String texto;
+
+        Opcao(long id, String texto) {
+            this.id = id;
+            this.texto = texto;
+        }
+
+        @Override
+        public String toString() {
+            return texto;
+        }
+    }
+
+    /** Uma aba da tela: tabela (com colunas ocultas de apoio), filtro de busca e carregamento em segundo plano. */
     private final class Aba {
         final String chave;
         final String singular;
@@ -1113,6 +1120,7 @@ public class TelaBiblioteca extends JPanel {
                 public boolean isCellEditable(int r, int c) { return false; }
             };
 
+            // --- Tabela e cabeçalho ---
             tabela = new JTable(modelo);
             tabela.setSelectionBackground(new Color(23, 55, 94));
             tabela.setSelectionForeground(Color.WHITE);
@@ -1129,6 +1137,7 @@ public class TelaBiblioteca extends JPanel {
             tabela.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
             tabela.getTableHeader().setPreferredSize(new Dimension(0, 40));
 
+            // --- Alinhamento: textos à esquerda, números/datas centralizados ---
             DefaultTableCellRenderer centro = new DefaultTableCellRenderer();
             centro.setHorizontalAlignment(SwingConstants.CENTER);
             centro.setBackground(CARD);
@@ -1152,6 +1161,7 @@ public class TelaBiblioteca extends JPanel {
                 tabela.removeColumn(tabela.getColumnModel().getColumn(c));
             }
 
+            // --- Cartão arredondado que alterna entre a tabela e o ghost loading ---
             ghost = new GhostPanel(visiveis);
             cardTabela = new JPanel(cardTab) {
                 @Override
@@ -1187,6 +1197,7 @@ public class TelaBiblioteca extends JPanel {
             return raiz;
         }
 
+        /** Filtra as linhas pelo texto digitado (procura em todas as colunas visíveis). */
         void filtrar(String texto) {
             if (texto == null || texto.trim().isEmpty()) {
                 sorter.setRowFilter(null);
@@ -1215,7 +1226,7 @@ public class TelaBiblioteca extends JPanel {
 
         /** Busca em segundo plano, com ghost loading; a tabela só troca quando os dados chegam. */
         void carregar() {
-            final int idCarga = ++cargaId;
+            final int idCarga = ++cargaId; // descarta respostas de cargas antigas
             carregando = true;
             cardTab.show(cardTabela, "ghost");
             ghost.iniciar();
@@ -1225,22 +1236,24 @@ public class TelaBiblioteca extends JPanel {
                 if (idCarga != cargaId) return;
                 modelo.setRowCount(0);
                 for (Object[] l : linhas) modelo.addRow(l);
-                carregando = false;
-                cardTab.show(cardTabela, "tabela");
-                ghost.parar();
-                atualizarTotal();
+                terminarCarga();
             }, ex -> {
                 if (idCarga != cargaId) return;
-                carregando = false;
-                cardTab.show(cardTabela, "tabela");
-                ghost.parar();
-                atualizarTotal();
+                terminarCarga();
                 erroCarga(ex);
             });
         }
+
+        /** Volta a mostrar a tabela e para a animação. */
+        private void terminarCarga() {
+            carregando = false;
+            cardTab.show(cardTabela, "tabela");
+            ghost.parar();
+            atualizarTotal();
+        }
     }
 
-    // Ghost loading visual (mesmo efeito das outras telas)
+    /** Animação de carregamento: desenha uma tabela "fantasma" com um brilho passando (mesmo efeito das outras telas). */
     private static class GhostPanel extends JPanel {
         private static final Color BASE = new Color(20, 36, 60);
         private static final Color BRILHO = new Color(38, 64, 102);
@@ -1278,6 +1291,7 @@ public class TelaBiblioteca extends JPanel {
             int celula = Math.max(1, w / colunas);
             int linhas = Math.max(1, (h - ALTURA_CABECALHO) / ALTURA_LINHA);
 
+            // linhas divisórias
             g2.setColor(new Color(18, 35, 60));
             g2.drawLine(0, ALTURA_CABECALHO, w, ALTURA_CABECALHO);
             for (int r = 0; r < linhas; r++) {
@@ -1285,17 +1299,20 @@ public class TelaBiblioteca extends JPanel {
                 g2.drawLine(0, y, w, y);
             }
 
+            // gradiente que se move da esquerda para a direita
             float cx = fase * w;
             float meia = Math.max(180f, w * 0.22f);
             g2.setPaint(new LinearGradientPaint(
                     new Point2D.Float(cx - meia, 0), new Point2D.Float(cx + meia, 0),
                     new float[] { 0f, 0.5f, 1f }, new Color[] { BASE, BRILHO, BASE }));
 
+            // barrinhas do cabeçalho
             for (int c = 0; c < colunas; c++) {
                 int bw = (int) (celula * 0.34);
                 g2.fillRoundRect(c * celula + (celula - bw) / 2, (ALTURA_CABECALHO - 10) / 2, bw, 10, 8, 8);
             }
 
+            // barrinhas das linhas (larguras variadas)
             for (int r = 0; r < linhas; r++) {
                 int y = ALTURA_CABECALHO + r * ALTURA_LINHA + (ALTURA_LINHA - 14) / 2;
                 for (int c = 0; c < colunas; c++) {

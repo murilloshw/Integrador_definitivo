@@ -4,8 +4,20 @@ import java.util.Base64;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
+/**
+ * Dados de um funcionário + a lógica de senha.
+ *
+ * A senha nunca é guardada em texto: guardamos um "salt" aleatório e o hash
+ * PBKDF2 (senha + salt). Para conferir, refazemos o hash com o mesmo salt e
+ * comparamos.
+ */
 public class Funcionario {
 
+    // =========================================================================
+    // CAMPOS
+    // =========================================================================
+
+    /** Parâmetros do PBKDF2: mais iterações = mais difícil de quebrar por força bruta. */
     private static final int ITERACOES = 65536;
     private static final int TAMANHO_CHAVE = 256;
 
@@ -21,7 +33,11 @@ public class Funcionario {
     private boolean permissaoAdmin;
     private boolean ativo;
 
-    // Construtor para novo funcionário
+    // =========================================================================
+    // CONSTRUTORES
+    // =========================================================================
+
+    // Construtor para novo funcionário (recebe a senha e gera salt + hash)
     public Funcionario(String id, String nome, String cpf, String telefone, String email,
             String cargo, String usuario, String senha, boolean permissaoAdmin,
             boolean ativo, boolean managerMasterIgnorado) {
@@ -54,6 +70,11 @@ public class Funcionario {
         this.ativo = ativo;
     }
 
+    // =========================================================================
+    // SENHA (HASH + SALT)
+    // =========================================================================
+
+    /** Gera um salt novo e guarda o hash da senha. */
     public final void definirSenha(String senha) {
         byte[] saltBytes = new byte[16];
         new SecureRandom().nextBytes(saltBytes);
@@ -61,6 +82,7 @@ public class Funcionario {
         this.senhaHash = gerarHash(senha, saltBytes);
     }
 
+    /** Refaz o hash da senha digitada com o salt guardado e compara (em tempo constante). */
     public boolean senhaConfere(String senhaDigitada) {
         if (salt == null || salt.isEmpty()) return false;
         byte[] saltBytes = Base64.getDecoder().decode(salt);
@@ -80,7 +102,10 @@ public class Funcionario {
         }
     }
 
-    // Getters e Setters
+    // =========================================================================
+    // GETTERS E SETTERS
+    // =========================================================================
+
     public String getId() { return id; }
     public String getNome() { return nome; }
     public String getCpf() { return cpf; }

@@ -40,9 +40,36 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import javax.swing.text.MaskFormatter;
 
+/**
+ * Tela de Cartões: lista todos os cartões do arcade (cliente dono, usuário,
+ * créditos, pontos e status) e permite cadastrar, editar, excluir e buscar.
+ *
+ * Como funciona: os dados ficam na tabela `cartões` do MySQL. A lista é lida em
+ * segundo plano (a tela não trava) e o App chama atualizarSilenciosamente() a
+ * cada 3s para refletir mudanças feitas em outros lugares (ex.: recargas).
+ * Recebe a TelaClientes para conferir se o cliente informado existe e mostrar o nome dele.
+ */
 public class TelaCartao extends JPanel {
-    
-  
+
+    // =========================================================================
+    // CONSTANTES
+    // Textos fixos e o SELECT que traz os cartões (com o nome do cliente via JOIN).
+    // Nomes com acento no banco ficam entre crases: `cartões`, `ID_Cartão`, `Usuário`.
+    // =========================================================================
+
+    private static final String PLACEHOLDER_BUSCA = "Buscar por ID, cliente ou usuário...";
+
+    private static final String SQL_CARTOES = "SELECT c.`ID_Cartão` AS id_cartao, c.ID_Cliente AS id_cliente, "
+            + "cl.Nome_Completo AS nome_cliente, c.`Usuário` AS usuario, "
+            + "c.Creditos AS creditos, c.Pontos AS pontos, c.Ativo AS ativo "
+            + "FROM `cartões` c "
+            + "JOIN clientes cl ON cl.ID_Cliente = c.ID_Cliente "
+            + "ORDER BY c.`ID_Cartão`";
+
+    // =========================================================================
+    // CAMPOS
+    // Componentes da tela e o controle da busca em segundo plano.
+    // =========================================================================
 
     private JTable tabela;
     private DefaultTableModel modeloTabela;
@@ -52,20 +79,15 @@ public class TelaCartao extends JPanel {
 
     private final TelaClientes telaClientes;
 
-    // -----------------------------------------------------------------
-    // CONEXÃO COM O BANCO
-    // Único ponto que depende da sua classe de conexão.
-    // -----------------------------------------------------------------
-    private Connection conectar() throws SQLException {
-        Connection con = Conexao.conectar();
-        if (con == null) {
-            // Conexao.conectar() devolve null quando falha (e já imprime o motivo no
-            // terminal)
-            throw new SQLException(
-                    "Não foi possível conectar ao MySQL. Verifique usuário, senha e se o servidor está ligado.");
-        }
-        return con;
-    }
+    /** true enquanto uma busca no banco está em andamento (evita buscas sobrepostas). */
+    private boolean carregando = false;
+    /** true se pediram uma nova busca enquanto outra ainda corria: ela é refeita ao terminar. */
+    private boolean recarregarDepois = false;
+
+    // =========================================================================
+    // CONSTRUTOR
+    // Monta a tela em três partes (topo, tabela, rodapé) e carrega os cartões.
+    // =========================================================================
 
     public TelaCartao(TelaClientes telaClientes) {
         this.telaClientes = telaClientes;
@@ -73,9 +95,21 @@ public class TelaCartao extends JPanel {
         setLayout(new BorderLayout(15, 12));
         setBorder(BorderFactory.createEmptyBorder(20, 25, 15, 25)); // Margens ajustadas para não cortar o rodapé
 
-        // -----------------------------------------------------------------
-        // 1. TOPO: Título, Busca e Botão "+ Novo Cartão"
-        // -----------------------------------------------------------------
+        add(criarTopo(), BorderLayout.NORTH);
+        add(criarTabela(), BorderLayout.CENTER);
+        add(criarRodape(), BorderLayout.SOUTH);
+
+        // Carrega os cartões do banco (também atualiza o "Total: X cartões")
+        carregarCartoes(true);
+    }
+
+    // =========================================================================
+    // MONTAGEM DA INTERFACE
+    // Topo (título, busca e botões), tabela de cartões e rodapé com o total.
+    // =========================================================================
+
+    /** Título "Cartões", campo de busca e os botões Editar / Excluir / + Novo Cartão. */
+    private JPanel criarTopo() {
         JPanel painelTopoGeral = new JPanel(new BorderLayout(0, 15));
         painelTopoGeral.setOpaque(false);
 
@@ -85,8 +119,33 @@ public class TelaCartao extends JPanel {
 
         JPanel painelAcoes = new JPanel(new BorderLayout(15, 0));
         painelAcoes.setOpaque(false);
+        painelAcoes.add(criarBusca(), BorderLayout.WEST);
 
-        // Campo de Busca
+        JButton btnEditar = criarBotaoEditar();
+        btnEditar.addActionListener(e -> {
+            int linha = linhaSelecionadaNoModelo();
+            if (linha >= 0) {
+                abrirModal(linha);
+            }
+        });
+
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirSelecionado());
+
+        JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        painelBotoesTopo.setOpaque(false);
+        painelBotoesTopo.add(btnEditar);
+        painelBotoesTopo.add(btnExcluir);
+        painelBotoesTopo.add(criarBotaoNovo());
+        painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
+
+        painelTopoGeral.add(lblTitulo, BorderLayout.NORTH);
+        painelTopoGeral.add(painelAcoes, BorderLayout.CENTER);
+        return painelTopoGeral;
+    }
+
+    /** Caixa de busca arredondada: filtra a tabela a cada tecla (ID, cliente ou usuário). */
+    private JPanel criarBusca() {
         JPanel painelBusca = new JPanel(new BorderLayout(8, 0)) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -106,16 +165,17 @@ public class TelaCartao extends JPanel {
         JLabel lblLupa = new JLabel("🔍");
         lblLupa.setForeground(new Color(148, 163, 184));
 
-        txtBuscar = new JTextField("Buscar por ID, cliente ou usuário...");
+        txtBuscar = new JTextField(PLACEHOLDER_BUSCA);
         txtBuscar.setOpaque(false);
         txtBuscar.setForeground(new Color(100, 116, 139));
         txtBuscar.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         txtBuscar.setBorder(null);
 
+        // Texto de exemplo ("placeholder"): some ao clicar e volta se o campo ficar vazio
         txtBuscar.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
             public void focusGained(java.awt.event.FocusEvent evt) {
-                if (txtBuscar.getText().equals("Buscar por ID, cliente ou usuário...")) {
+                if (txtBuscar.getText().equals(PLACEHOLDER_BUSCA)) {
                     txtBuscar.setText("");
                     txtBuscar.setForeground(Color.WHITE);
                 }
@@ -125,7 +185,7 @@ public class TelaCartao extends JPanel {
             public void focusLost(java.awt.event.FocusEvent evt) {
                 if (txtBuscar.getText().isEmpty()) {
                     txtBuscar.setForeground(new Color(100, 116, 139));
-                    txtBuscar.setText("Buscar por ID, cliente ou usuário...");
+                    txtBuscar.setText(PLACEHOLDER_BUSCA);
                 }
             }
         });
@@ -134,7 +194,7 @@ public class TelaCartao extends JPanel {
             @Override
             public void keyReleased(KeyEvent e) {
                 String texto = txtBuscar.getText();
-                if (texto.equals("Buscar por ID, cliente ou usuário...") || texto.trim().isEmpty()) {
+                if (texto.equals(PLACEHOLDER_BUSCA) || texto.trim().isEmpty()) {
                     sorter.setRowFilter(null);
                 } else {
                     sorter.setRowFilter(RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(texto.trim())));
@@ -145,8 +205,11 @@ public class TelaCartao extends JPanel {
 
         painelBusca.add(lblLupa, BorderLayout.WEST);
         painelBusca.add(txtBuscar, BorderLayout.CENTER);
+        return painelBusca;
+    }
 
-        // Botão Novo Cartão
+    /** Botão azul "+ Novo Cartão": abre o formulário vazio. */
+    private JButton criarBotaoNovo() {
         JButton btnNovoCartao = new JButton("+ Novo Cartão") {
             @Override
             protected void paintComponent(Graphics g) {
@@ -166,34 +229,46 @@ public class TelaCartao extends JPanel {
         btnNovoCartao.setBorderPainted(false);
         btnNovoCartao.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnNovoCartao.addActionListener(e -> abrirModal(-1));
+        return btnNovoCartao;
+    }
 
-        painelAcoes.add(painelBusca, BorderLayout.WEST);
-        JButton btnEditar = criarBotaoEditar();
-        btnEditar.addActionListener(e -> {
-            int linha = linhaSelecionadaNoModelo();
-            if (linha >= 0) {
-                abrirModal(linha);
+    /** Botão de lápis azul (ícone desenhado em código, sem depender de imagem/fonte). */
+    private JButton criarBotaoEditar() {
+        JButton btn = new JButton() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getModel().isRollover() ? new Color(20, 40, 68) : new Color(13, 27, 46));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.setColor(new Color(30, 48, 80));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+
+                g2.translate(getWidth() / 2.0, getHeight() / 2.0);
+                g2.rotate(Math.toRadians(45));
+                g2.setColor(new Color(147, 197, 253)); // borracha
+                g2.fillRoundRect(-3, -11, 6, 3, 2, 2);
+                g2.setColor(new Color(14, 116, 233)); // corpo
+                g2.fillRect(-3, -8, 6, 12);
+                g2.setColor(new Color(56, 160, 255)); // ponta
+                g2.fillPolygon(new int[] { -3, 3, 0 }, new int[] { 4, 4, 10 }, 3);
+                g2.setColor(Color.WHITE); // grafite
+                g2.fillPolygon(new int[] { -1, 1, 0 }, new int[] { 8, 8, 10 }, 3);
+                g2.dispose();
             }
-        });
+        };
+        btn.setPreferredSize(new Dimension(38, 38));
+        btn.setToolTipText("Editar selecionado");
+        btn.setFocusPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setRolloverEnabled(true);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
 
-        JButton btnExcluir = Exclusao.criarBotao();
-        btnExcluir.addActionListener(e -> excluirSelecionado());
-
-        JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        painelBotoesTopo.setOpaque(false);
-        painelBotoesTopo.add(btnEditar);
-        painelBotoesTopo.add(btnExcluir);
-        painelBotoesTopo.add(btnNovoCartao);
-        painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
-
-        painelTopoGeral.add(lblTitulo, BorderLayout.NORTH);
-        painelTopoGeral.add(painelAcoes, BorderLayout.CENTER);
-
-        add(painelTopoGeral, BorderLayout.NORTH);
-
-        // -----------------------------------------------------------------
-        // 2. TABELA DE CARTÕES (Design Suave)
-        // -----------------------------------------------------------------
+    /** Card arredondado com a tabela de cartões (não editável, colunas fixas, ordenável). */
+    private JPanel criarTabela() {
         JPanel painelCardTabela = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -224,10 +299,10 @@ public class TelaCartao extends JPanel {
         sorter = new TableRowSorter<>(modeloTabela);
         tabela.setRowSorter(sorter);
 
-        // IMPEDE QUE O USUÁRIO ARRASTE AS COLUNAS
+        // Impede que o usuário arraste as colunas
         tabela.getTableHeader().setReorderingAllowed(false);
 
-        // Estilização da tabela
+        // Cores e fontes da tabela e do cabeçalho
         tabela.setBackground(new Color(10, 22, 40));
         tabela.setForeground(new Color(226, 232, 240));
         tabela.setGridColor(new Color(18, 35, 60));
@@ -239,6 +314,7 @@ public class TelaCartao extends JPanel {
         tabela.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
         tabela.getTableHeader().setPreferredSize(new Dimension(0, 40));
 
+        // Números centralizados (azul claro); nome do cliente e usuário à esquerda (branco)
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
         centerRenderer.setBackground(new Color(10, 22, 40));
@@ -249,13 +325,10 @@ public class TelaCartao extends JPanel {
         leftRenderer.setBackground(new Color(10, 22, 40));
         leftRenderer.setForeground(Color.WHITE);
 
-        tabela.getColumnModel().getColumn(0).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(1).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(2).setCellRenderer(leftRenderer);
-        tabela.getColumnModel().getColumn(3).setCellRenderer(leftRenderer);
-        tabela.getColumnModel().getColumn(4).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(5).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(6).setCellRenderer(centerRenderer);
+        for (int c = 0; c < colunas.length; c++) {
+            boolean texto = c == 2 || c == 3;
+            tabela.getColumnModel().getColumn(c).setCellRenderer(texto ? leftRenderer : centerRenderer);
+        }
 
         JScrollPane scrollPane = new JScrollPane(tabela);
         scrollPane.setOpaque(false);
@@ -263,11 +336,11 @@ public class TelaCartao extends JPanel {
         scrollPane.setBorder(null);
 
         painelCardTabela.add(scrollPane, BorderLayout.CENTER);
-        add(painelCardTabela, BorderLayout.CENTER);
+        return painelCardTabela;
+    }
 
-        // -----------------------------------------------------------------
-        // 3. RODAPÉ (PAGINAÇÃO E TOTAL CORRIGIDOS)
-        // -----------------------------------------------------------------
+    /** Rodapé com o "Total: X cartões". */
+    private JPanel criarRodape() {
         JPanel painelRodape = new JPanel(new BorderLayout());
         painelRodape.setOpaque(false);
         painelRodape.setPreferredSize(new Dimension(0, 35));
@@ -281,17 +354,15 @@ public class TelaCartao extends JPanel {
 
         painelRodape.add(lblTotalCartoes, BorderLayout.WEST);
         painelRodape.add(painelPaginacao, BorderLayout.EAST);
-
-        add(painelRodape, BorderLayout.SOUTH);
-
-        // Carrega os cartões do banco (também atualiza o "Total: X cartões")
-        carregarCartoes(true);
+        return painelRodape;
     }
 
-    /**
-     * Atualiza o nome do cliente em cada cartão (caso o cliente tenha sido
-     * editado).
-     */
+    // =========================================================================
+    // MÉTODOS CHAMADOS PELO APP
+    // Recarregar ao abrir a tela, atualização automática e nomes de clientes.
+    // =========================================================================
+
+    /** Atualiza o nome do cliente em cada cartão (caso o cliente tenha sido editado). */
     public void atualizarNomesClientes() {
         for (int i = 0; i < modeloTabela.getRowCount(); i++) {
             String nome = telaClientes.buscarNomePorId(String.valueOf(modeloTabela.getValueAt(i, 1)));
@@ -311,27 +382,20 @@ public class TelaCartao extends JPanel {
         carregarCartoes(false);
     }
 
-    private void atualizarTotal() {
-        int count = tabela.getRowCount();
-        lblTotalCartoes.setText("Total: " + count + " cartões");
+    // =========================================================================
+    // CARREGAMENTO DOS DADOS (BANCO -> TABELA)
+    // SELECT em segundo plano; a tabela só é trocada se algo mudou.
+    // =========================================================================
+
+    /** Conexao.conectar() devolve null quando falha; aqui vira exceção com mensagem clara. */
+    private Connection conectar() throws SQLException {
+        Connection con = Conexao.conectar();
+        if (con == null) {
+            throw new SQLException(
+                    "Não foi possível conectar ao MySQL. Verifique usuário, senha e se o servidor está ligado.");
+        }
+        return con;
     }
-
-    // -----------------------------------------------------------------
-    // ACESSO AO BANCO DE DADOS
-    // (nomes com acento ficam entre crases: `Cartões`, `ID_Cartão`, `Usuário`)
-    // -----------------------------------------------------------------
-
-    private static final String SQL_CARTOES = "SELECT c.`ID_Cartão` AS id_cartao, c.ID_Cliente AS id_cliente, "
-            + "cl.Nome_Completo AS nome_cliente, c.`Usuário` AS usuario, "
-            + "c.Creditos AS creditos, c.Pontos AS pontos, c.Ativo AS ativo "
-            + "FROM `cartões` c "
-            + "JOIN clientes cl ON cl.ID_Cliente = c.ID_Cliente "
-            + "ORDER BY c.`ID_Cartão`";
-
-    /** true enquanto uma busca no banco está em andamento (evita buscas sobrepostas). */
-    private boolean carregando = false;
-    /** true se pediram uma nova busca enquanto outra ainda corria: ela é refeita ao terminar. */
-    private boolean recarregarDepois = false;
 
     /**
      * SELECT de todos os cartões (com o nome do cliente via JOIN), feito em segundo plano.
@@ -420,6 +484,7 @@ public class TelaCartao extends JPanel {
         atualizarTotal();
     }
 
+    /** Compara as linhas novas com as que já estão na tabela, célula por célula. */
     private boolean mesmasLinhas(List<Object[]> novas) {
         if (novas.size() != modeloTabela.getRowCount()) {
             return false;
@@ -436,6 +501,10 @@ public class TelaCartao extends JPanel {
         }
         return true;
     }
+
+    // =========================================================================
+    // GRAVAÇÃO NO BANCO (INSERT / UPDATE / DELETE)
+    // =========================================================================
 
     /** INSERT de um novo cartão. Retorna o ID gerado pelo banco (AUTO_INCREMENT). */
     private long inserirCartao(long idCliente, String usuario, long credito, long pontos, boolean ativo)
@@ -481,18 +550,6 @@ public class TelaCartao extends JPanel {
         }
     }
 
-    /** Traduz erros comuns do MySQL para mensagens amigáveis. */
-    private String mensagemDeErro(SQLException ex) {
-        if (ex.getErrorCode() == 1062) { // valor duplicado (UNIQUE)
-            return "Este usuário já está em uso por outro cartão. Escolha outro nome de usuário.";
-        }
-        if (ex.getErrorCode() == 1452) { // chave estrangeira (cliente inexistente)
-            return "O cliente informado não existe no banco de dados.";
-        }
-        return "Erro ao salvar no banco de dados:\n" + ex.getMessage();
-    }
-
-    /** Lê o ID real (numérico) da linha do modelo: "003" -> 3. */
     /** Exclui o cartão selecionado (só se não tiver recargas, partidas ou resgates ligados a ele). */
     private void excluirSelecionado() {
         int linha = linhaSelecionadaNoModelo();
@@ -513,14 +570,23 @@ public class TelaCartao extends JPanel {
         carregarCartoes(true);
     }
 
-    private long idDaLinha(int linhaModelo) {
-        return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
+    /** Traduz erros comuns do MySQL para mensagens amigáveis. */
+    private String mensagemDeErro(SQLException ex) {
+        if (ex.getErrorCode() == 1062) { // valor duplicado (UNIQUE)
+            return "Este usuário já está em uso por outro cartão. Escolha outro nome de usuário.";
+        }
+        if (ex.getErrorCode() == 1452) { // chave estrangeira (cliente inexistente)
+            return "O cliente informado não existe no banco de dados.";
+        }
+        return "Erro ao salvar no banco de dados:\n" + ex.getMessage();
     }
 
-    // -----------------------------------------------------------------
-    // 4. MODAL DE CADASTRO COM JFORMATTEDTEXTFIELD
-    // -----------------------------------------------------------------
-    // linhaModelo < 0 => novo cadastro; senão edita a linha indicada
+    // =========================================================================
+    // FORMULÁRIO DE CADASTRO / EDIÇÃO (JANELA MODAL)
+    // Valida os campos, grava no banco e só então atualiza a tabela.
+    // =========================================================================
+
+    /** linhaModelo < 0 => novo cadastro; senão edita a linha indicada. */
     private void abrirModal(int linhaModelo) {
         boolean edicao = linhaModelo >= 0;
         java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
@@ -534,6 +600,7 @@ public class TelaCartao extends JPanel {
         painelForm.setBackground(new Color(10, 22, 40));
         painelForm.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 25));
 
+        // ---------- Campos ----------
         JFormattedTextField txtIdCliente = criarCampoFormatado("###");
         JTextField txtUsuario = criarCampoTexto();
         JTextField txtCredito = criarCampoTexto();
@@ -545,6 +612,7 @@ public class TelaCartao extends JPanel {
         cmbStatus.setForeground(Color.WHITE);
         cmbStatus.setFont(new Font("Segoe UI", Font.PLAIN, 13));
 
+        // Na edição, os campos já vêm preenchidos com os dados da linha
         if (edicao) {
             txtIdCliente.setText(String.valueOf(modeloTabela.getValueAt(linhaModelo, 1)));
             txtUsuario.setText(String.valueOf(modeloTabela.getValueAt(linhaModelo, 3)));
@@ -564,6 +632,7 @@ public class TelaCartao extends JPanel {
         painelForm.add(criarLabel("Status:"));
         painelForm.add(cmbStatus);
 
+        // ---------- Botões ----------
         JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
         painelBotoes.setBackground(new Color(2, 12, 27));
 
@@ -582,10 +651,9 @@ public class TelaCartao extends JPanel {
             long credito, pontos;
             String idCliente = txtIdCliente.getText();
 
+            // ---------- Validações ----------
             if (idCliente.contains(" ")) {
-                JOptionPane.showMessageDialog(modal,
-                        "Digite o ID do Cliente com 3 dígitos (ex.: 001, 002).", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+                aviso(modal, "Digite o ID do Cliente com 3 dígitos (ex.: 001, 002).");
                 return;
             }
 
@@ -601,21 +669,16 @@ public class TelaCartao extends JPanel {
                 credito = Long.parseLong(txtCredito.getText().trim());
                 pontos = Long.parseLong(txtPontos.getText().trim());
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(modal,
-                        "Crédito e Pontos devem ser números inteiros.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+                aviso(modal, "Crédito e Pontos devem ser números inteiros.");
                 return;
             }
 
             if (usuario.isEmpty() || usuario.length() > 50) {
-                JOptionPane.showMessageDialog(modal, "Informe o Usuário (até 50 caracteres).", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+                aviso(modal, "Informe o Usuário (até 50 caracteres).");
                 return;
             }
             if (credito < 0 || pontos < 0) {
-                JOptionPane.showMessageDialog(modal,
-                        "Crédito e Pontos não podem ser negativos.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+                aviso(modal, "Crédito e Pontos não podem ser negativos.");
                 return;
             }
 
@@ -667,41 +730,19 @@ public class TelaCartao extends JPanel {
         modal.setVisible(true);
     }
 
-    // Botão de lápis azul (ícone desenhado em código, sem depender de imagem/fonte)
-    private JButton criarBotaoEditar() {
-        JButton btn = new JButton() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(getModel().isRollover() ? new Color(20, 40, 68) : new Color(13, 27, 46));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
-                g2.setColor(new Color(30, 48, 80));
-                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+    // =========================================================================
+    // UTILITÁRIOS
+    // Pequenas ajudas: total no rodapé, linha selecionada, ID da linha,
+    // avisos e criação de labels/campos no estilo da tela.
+    // =========================================================================
 
-                g2.translate(getWidth() / 2.0, getHeight() / 2.0);
-                g2.rotate(Math.toRadians(45));
-                g2.setColor(new Color(147, 197, 253)); // borracha
-                g2.fillRoundRect(-3, -11, 6, 3, 2, 2);
-                g2.setColor(new Color(14, 116, 233)); // corpo
-                g2.fillRect(-3, -8, 6, 12);
-                g2.setColor(new Color(56, 160, 255)); // ponta
-                g2.fillPolygon(new int[] { -3, 3, 0 }, new int[] { 4, 4, 10 }, 3);
-                g2.setColor(Color.WHITE); // grafite
-                g2.fillPolygon(new int[] { -1, 1, 0 }, new int[] { 8, 8, 10 }, 3);
-                g2.dispose();
-            }
-        };
-        btn.setPreferredSize(new Dimension(38, 38));
-        btn.setToolTipText("Editar selecionado");
-        btn.setFocusPainted(false);
-        btn.setContentAreaFilled(false);
-        btn.setBorderPainted(false);
-        btn.setRolloverEnabled(true);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
+    /** Mostra no rodapé quantos cartões estão visíveis (respeita o filtro da busca). */
+    private void atualizarTotal() {
+        int count = tabela.getRowCount();
+        lblTotalCartoes.setText("Total: " + count + " cartões");
     }
 
+    /** Linha selecionada convertida para o índice do modelo (a tabela pode estar filtrada/ordenada). */
     private int linhaSelecionadaNoModelo() {
         int viewRow = tabela.getSelectedRow();
         if (viewRow < 0) {
@@ -712,6 +753,16 @@ public class TelaCartao extends JPanel {
         return tabela.convertRowIndexToModel(viewRow);
     }
 
+    /** Lê o ID real (numérico) da linha do modelo: "003" -> 3. */
+    private long idDaLinha(int linhaModelo) {
+        return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
+    }
+
+    /** Caixa de aviso amarela do formulário. */
+    private void aviso(JDialog modal, String mensagem) {
+        JOptionPane.showMessageDialog(modal, mensagem, "Aviso", JOptionPane.WARNING_MESSAGE);
+    }
+
     private JLabel criarLabel(String texto) {
         JLabel lbl = new JLabel(texto);
         lbl.setForeground(new Color(226, 232, 240));
@@ -720,17 +771,10 @@ public class TelaCartao extends JPanel {
     }
 
     private JTextField criarCampoTexto() {
-        JTextField txt = new JTextField();
-        txt.setBackground(new Color(2, 12, 27));
-        txt.setForeground(Color.WHITE);
-        txt.setCaretColor(Color.WHITE);
-        txt.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        txt.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(30, 48, 80), 1),
-                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
-        return txt;
+        return estilizarCampo(new JTextField());
     }
 
+    /** Campo com máscara (ex.: "###" aceita só 3 dígitos). */
     private JFormattedTextField criarCampoFormatado(String mascara) {
         JFormattedTextField txt;
         try {
@@ -740,6 +784,11 @@ public class TelaCartao extends JPanel {
         } catch (ParseException e) {
             txt = new JFormattedTextField();
         }
+        return estilizarCampo(txt);
+    }
+
+    /** Fundo escuro, texto branco e borda azul usados em todos os campos do formulário. */
+    private <T extends JTextField> T estilizarCampo(T txt) {
         txt.setBackground(new Color(2, 12, 27));
         txt.setForeground(Color.WHITE);
         txt.setCaretColor(Color.WHITE);
@@ -749,5 +798,4 @@ public class TelaCartao extends JPanel {
                 BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         return txt;
     }
-
 }

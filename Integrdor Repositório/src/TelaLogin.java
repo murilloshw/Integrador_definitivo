@@ -11,7 +11,21 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+/**
+ * Tela de login (primeira tela do sistema).
+ *
+ * Fluxo: o funcionário digita usuário e senha → a senha é conferida no banco
+ * (hash PBKDF2 + salt) → se estiver tudo certo, aparece a animação de "Entrando
+ * no sistema" enquanto as conexões com o banco são abertas → abre o App.
+ *
+ * O visual (painel, campos, ícones e botão) é desenhado à mão em um layout base
+ * de 1664x936 que é escalado para caber em qualquer tamanho de monitor.
+ */
 public class TelaLogin extends JFrame {
+
+    // =========================================================================
+    // CAMPOS E CORES
+    // =========================================================================
 
     private JTextField email;
     private JPasswordField senha;
@@ -30,12 +44,11 @@ public class TelaLogin extends JFrame {
     private static final Color AZUL_TEXTO = new Color(119, 182, 242);
     private static final Color BRANCO = new Color(245, 247, 250);
 
+    /** Tamanho do layout de referência; tudo é desenhado nele e depois escalado. */
     private static final double BASE_W = 1664.0;
     private static final double BASE_H = 936.0;
 
-    // ---------------------------------------------------------------
-    // Resultado da autenticação (cada caso vira uma mensagem diferente)
-    // ---------------------------------------------------------------
+    /** Resultado da autenticação (cada caso vira uma mensagem diferente). */
     private enum Resultado {
         SUCESSO,
         CREDENCIAIS_INVALIDAS,
@@ -55,6 +68,12 @@ public class TelaLogin extends JFrame {
         }
     }
 
+    // =========================================================================
+    // CONSTRUTOR E MONTAGEM DA TELA
+    // Os campos de texto e botões são transparentes; o desenho deles fica na
+    // classe Tela (mais abaixo).
+    // =========================================================================
+
     public TelaLogin() {
         setTitle("Arcade");
         setUndecorated(true);
@@ -68,6 +87,7 @@ public class TelaLogin extends JFrame {
         setVisible(true);
     }
 
+    /** Garante que a tabela de salts das senhas exista no banco. */
     private void verificarEstruturaBanco() {
         try (Connection con = Conexao.conectar()) {
             if (con != null) {
@@ -137,6 +157,7 @@ public class TelaLogin extends JFrame {
 
     }
 
+    /** Botão do olho: mostra/esconde a senha digitada. */
     private void alternarSenha() {
         mostrarSenha = !mostrarSenha;
         senha.setEchoChar(mostrarSenha ? (char) 0 : '●');
@@ -144,9 +165,10 @@ public class TelaLogin extends JFrame {
         repaint();
     }
 
-    // ---------------------------------------------------------------
+    // =========================================================================
     // LOGIN
-    // ---------------------------------------------------------------
+    // Valida os campos, autentica no banco e mostra a mensagem certa para cada caso.
+    // =========================================================================
 
     private void fazerLogin() {
         if (carregando) return;
@@ -279,6 +301,12 @@ public class TelaLogin extends JFrame {
         }
     }
 
+    // =========================================================================
+    // CARREGAMENTO PÓS-LOGIN
+    // Abre as conexões do banco em segundo plano (sem travar a tela) e depois
+    // abre o App. Se a conexão falhar, oferece "Tentar novamente".
+    // =========================================================================
+
     private void iniciarCarregamento(Funcionario funcionario) {
         carregando = true;
         bloquearEntrada(true);
@@ -354,6 +382,8 @@ public class TelaLogin extends JFrame {
 
     // =========================================================================
     // PAINEL PRINCIPAL E ANIMAÇÕES VISUAIS
+    // Desenha o fundo, o cartão de login, os campos e o botão "Log in" com
+    // efeitos de hover, clique e "ondinha" (ripple).
     // =========================================================================
     class Tela extends JPanel {
         private double escala = 1.0;
@@ -562,14 +592,18 @@ public class TelaLogin extends JFrame {
 
         private void desenharOlho(Graphics2D g, int x, int y) {
             g.setColor(AZUL_TEXTO); g.setStroke(new BasicStroke(2));
-            if (mostrarSenha) {
-                g.drawOval(x, y, 22, 15); g.fillOval(x + 7, y + 4, 8, 8);
-            } else {
-                g.drawOval(x, y, 22, 15); g.fillOval(x + 7, y + 4, 8, 8);
-                g.drawLine(x - 3, y - 3, x + 25, y + 19);
+            g.drawOval(x, y, 22, 15); g.fillOval(x + 7, y + 4, 8, 8);
+            if (!mostrarSenha) {
+                g.drawLine(x - 3, y - 3, x + 25, y + 19); // olho riscado = senha escondida
             }
         }
     }
+
+    // =========================================================================
+    // OVERLAY "ENTRANDO NO SISTEMA"
+    // Cartão com as 3 etapas do carregamento, spinner e barra animada. Fica por
+    // cima da tela (glass pane) e bloqueia cliques enquanto carrega.
+    // =========================================================================
 
     class CarregandoOverlay extends JComponent {
         private final String[] etapas = { "Credenciais verificadas", "Conectando ao banco de dados", "Carregando telas do sistema" };
@@ -671,6 +705,10 @@ public class TelaLogin extends JFrame {
             g2.drawString(texto, cx - fm.stringWidth(texto) / 2, baseY);
         }
     }
+
+    // =========================================================================
+    // PONTO DE ENTRADA DO PROGRAMA
+    // =========================================================================
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(TelaLogin::new);

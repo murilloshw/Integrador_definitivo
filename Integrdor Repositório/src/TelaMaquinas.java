@@ -15,6 +15,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.regex.Pattern;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -33,57 +34,117 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 
 /**
- * Tela de Máquinas (mesma estrutura de TelaClientes / TelaCartao).
+ * Tela de MÁQUINAS: lista as máquinas de jogo do banco numa tabela com busca,
+ * e permite cadastrar, editar e excluir máquinas.
  *
- * Campos: ID da máquina, Nome, Tipo de jogo, Valor da partida (em créditos) e Status.
- * A localização física da máquina NÃO é armazenada.
- *
- * Os dados vêm da tabela `Máquinas` do MySQL (SELECT / INSERT / UPDATE via Conexao).
+ * Campos: ID, Nome, Tipo de jogo, Valor da partida (em créditos) e Status
+ * (Disponível / Indisponível). Os dados vêm da tabela `máquinas` do MySQL.
  */
 public class TelaMaquinas extends JPanel {
 
+    // =========================================================================
+    // CONSTANTES
+    // Texto de dica da busca e os dois valores possíveis de Status.
+    // =========================================================================
     private static final String PLACEHOLDER_BUSCA = "Buscar por ID, nome ou tipo de jogo...";
     private static final String DISPONIVEL = "Disponível";
     private static final String INDISPONIVEL = "Indisponível";
 
+    // =========================================================================
+    // CAMPOS
+    // Componentes da tela que são usados em mais de um método.
+    // =========================================================================
     private JTable tabela;
     private DefaultTableModel modeloTabela;
     private TableRowSorter<DefaultTableModel> sorter;
     private JTextField txtBuscar;
     private JLabel lblTotalMaquinas;
 
-    // -----------------------------------------------------------------
-    // CONEXÃO COM O BANCO
-    // Conexao.conectar() devolve null quando falha; aqui viramos SQLException
-    // para a tela mostrar a mensagem de erro em vez de dar NullPointerException.
-    // -----------------------------------------------------------------
-    private Connection conectar() throws SQLException {
-        Connection con = Conexao.conectar();
-        if (con == null) {
-            throw new SQLException("Não foi possível conectar ao banco de dados.");
-        }
-        return con;
-    }
-
+    // =========================================================================
+    // CONSTRUTOR
+    // Monta as três partes da tela (topo, tabela, rodapé) e carrega os dados.
+    // =========================================================================
     public TelaMaquinas() {
-        setBackground(new Color(2, 12, 27)); // Fundo azul marinho escuro
+        setBackground(new Color(2, 12, 27)); // fundo azul marinho escuro
         setLayout(new BorderLayout(15, 12));
         setBorder(BorderFactory.createEmptyBorder(20, 25, 15, 25));
 
-        // -----------------------------------------------------------------
-        // 1. TOPO: Título, Busca e Botão "+ Nova Máquina"
-        // -----------------------------------------------------------------
-        JPanel painelTopoGeral = new JPanel(new BorderLayout(0, 15));
-        painelTopoGeral.setOpaque(false);
+        add(criarTopo(), BorderLayout.NORTH);
+        add(criarTabela(), BorderLayout.CENTER);
+        add(criarRodape(), BorderLayout.SOUTH);
 
+        carregarMaquinas(); // também atualiza o "Total: X máquinas"
+    }
+
+    // =========================================================================
+    // MÉTODOS PÚBLICOS
+    // Podem ser chamados por outras telas.
+    // =========================================================================
+
+    /** Recarrega a tabela a partir do banco. */
+    public void recarregar() {
+        carregarMaquinas();
+    }
+
+    /** Devolve o nome da máquina com o ID informado (ex.: "007") ou null se não existir. */
+    public String buscarNomePorId(String idComoTexto) {
+        if (idComoTexto == null) {
+            return null;
+        }
+        String id = idComoTexto.trim();
+        for (int i = 0; i < modeloTabela.getRowCount(); i++) {
+            if (String.valueOf(modeloTabela.getValueAt(i, 0)).trim().equals(id)) {
+                return String.valueOf(modeloTabela.getValueAt(i, 1));
+            }
+        }
+        return null;
+    }
+
+    // =========================================================================
+    // MONTAGEM DA INTERFACE
+    // Topo (título, busca e botões), tabela de máquinas e rodapé com o total.
+    // =========================================================================
+
+    /** Topo: título "Máquinas", campo de busca e botões Editar / Excluir / + Nova Máquina. */
+    private JPanel criarTopo() {
         JLabel lblTitulo = new JLabel("Máquinas");
         lblTitulo.setFont(new Font("Segoe UI", Font.BOLD, 22));
         lblTitulo.setForeground(Color.WHITE);
 
+        JButton btnEditar = criarBotaoEditar();
+        btnEditar.addActionListener(e -> {
+            int linha = linhaSelecionadaNoModelo();
+            if (linha >= 0) {
+                abrirModal(linha);
+            }
+        });
+
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirSelecionado());
+
+        JButton btnNovaMaquina = criarBotaoNovo();
+        btnNovaMaquina.addActionListener(e -> abrirModal(-1));
+
+        JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        painelBotoesTopo.setOpaque(false);
+        painelBotoesTopo.add(btnEditar);
+        painelBotoesTopo.add(btnExcluir);
+        painelBotoesTopo.add(btnNovaMaquina);
+
         JPanel painelAcoes = new JPanel(new BorderLayout(15, 0));
         painelAcoes.setOpaque(false);
+        painelAcoes.add(criarBusca(), BorderLayout.WEST);
+        painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
 
-        // Campo de Busca
+        JPanel painelTopo = new JPanel(new BorderLayout(0, 15));
+        painelTopo.setOpaque(false);
+        painelTopo.add(lblTitulo, BorderLayout.NORTH);
+        painelTopo.add(painelAcoes, BorderLayout.CENTER);
+        return painelTopo;
+    }
+
+    /** Campo de busca arredondado: filtra a tabela a cada tecla digitada. */
+    private JPanel criarBusca() {
         JPanel painelBusca = new JPanel(new BorderLayout(8, 0)) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -109,6 +170,7 @@ public class TelaMaquinas extends JPanel {
         txtBuscar.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         txtBuscar.setBorder(null);
 
+        // Texto de dica (placeholder): some ao clicar, volta se o campo ficar vazio
         txtBuscar.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
             public void focusGained(java.awt.event.FocusEvent evt) {
@@ -126,6 +188,8 @@ public class TelaMaquinas extends JPanel {
                 }
             }
         });
+
+        // Filtro da tabela (ignora maiúsculas/minúsculas)
         txtBuscar.addKeyListener(new KeyAdapter() {
             @Override
             public void keyReleased(KeyEvent e) {
@@ -134,7 +198,7 @@ public class TelaMaquinas extends JPanel {
                     sorter.setRowFilter(null);
                 } else {
                     // Pattern.quote evita erro se o usuário digitar caracteres como ( ) + . *
-                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(texto.trim())));
+                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(texto.trim())));
                 }
                 atualizarTotal();
             }
@@ -142,72 +206,12 @@ public class TelaMaquinas extends JPanel {
 
         painelBusca.add(lblLupa, BorderLayout.WEST);
         painelBusca.add(txtBuscar, BorderLayout.CENTER);
+        return painelBusca;
+    }
 
-        // Botão Nova Máquina
-        JButton btnNovaMaquina = new JButton("+ Nova Máquina") {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(14, 116, 233));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
-                g2.dispose();
-                super.paintComponent(g);
-            }
-        };
-        btnNovaMaquina.setPreferredSize(new Dimension(150, 38));
-        btnNovaMaquina.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        btnNovaMaquina.setForeground(Color.WHITE);
-        btnNovaMaquina.setFocusPainted(false);
-        btnNovaMaquina.setContentAreaFilled(false);
-        btnNovaMaquina.setBorderPainted(false);
-        btnNovaMaquina.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnNovaMaquina.addActionListener(e -> abrirModal(-1));
-
-        painelAcoes.add(painelBusca, BorderLayout.WEST);
-        JButton btnEditar = criarBotaoEditar();
-        btnEditar.addActionListener(e -> {
-            int linha = linhaSelecionadaNoModelo();
-            if (linha >= 0) {
-                abrirModal(linha);
-            }
-        });
-
-        JButton btnExcluir = Exclusao.criarBotao();
-        btnExcluir.addActionListener(e -> excluirSelecionado());
-
-        JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        painelBotoesTopo.setOpaque(false);
-        painelBotoesTopo.add(btnEditar);
-        painelBotoesTopo.add(btnExcluir);
-        painelBotoesTopo.add(btnNovaMaquina);
-        painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
-
-        painelTopoGeral.add(lblTitulo, BorderLayout.NORTH);
-        painelTopoGeral.add(painelAcoes, BorderLayout.CENTER);
-
-        add(painelTopoGeral, BorderLayout.NORTH);
-
-        // -----------------------------------------------------------------
-        // 2. TABELA DE MÁQUINAS (Design Suave)
-        // -----------------------------------------------------------------
-        JPanel painelCardTabela = new JPanel(new BorderLayout()) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(10, 22, 40));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
-                g2.setColor(new Color(23, 42, 69));
-                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
-                g2.dispose();
-            }
-        };
-        painelCardTabela.setOpaque(false);
-        painelCardTabela.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
-
+    /** Tabela de máquinas dentro de um card arredondado. */
+    private JPanel criarTabela() {
         String[] colunas = { "ID ", "Nome ", "Tipo de Jogo ", "Valor da Partida ", "Status " };
-
         modeloTabela = new DefaultTableModel(colunas, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -220,11 +224,9 @@ public class TelaMaquinas extends JPanel {
         tabela.setSelectionForeground(Color.WHITE);
         sorter = new TableRowSorter<>(modeloTabela);
         tabela.setRowSorter(sorter);
+        tabela.getTableHeader().setReorderingAllowed(false); // impede arrastar colunas
 
-        // IMPEDE QUE O USUÁRIO ARRASTE AS COLUNAS
-        tabela.getTableHeader().setReorderingAllowed(false);
-
-        // Estilização da tabela
+        // Cores e fontes
         tabela.setBackground(new Color(10, 22, 40));
         tabela.setForeground(new Color(226, 232, 240));
         tabela.setGridColor(new Color(18, 35, 60));
@@ -236,82 +238,65 @@ public class TelaMaquinas extends JPanel {
         tabela.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
         tabela.getTableHeader().setPreferredSize(new Dimension(0, 40));
 
-        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
-        centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
-        centerRenderer.setBackground(new Color(10, 22, 40));
-        centerRenderer.setForeground(new Color(186, 230, 253));
-
-        DefaultTableCellRenderer leftRenderer = new DefaultTableCellRenderer();
-        leftRenderer.setHorizontalAlignment(SwingConstants.LEFT);
-        leftRenderer.setBackground(new Color(10, 22, 40));
-        leftRenderer.setForeground(Color.WHITE);
-
-        tabela.getColumnModel().getColumn(0).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(1).setCellRenderer(leftRenderer);
-        tabela.getColumnModel().getColumn(2).setCellRenderer(leftRenderer);
-        tabela.getColumnModel().getColumn(3).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(4).setCellRenderer(centerRenderer);
+        // Alinhamento: Nome e Tipo à esquerda; o resto centralizado
+        DefaultTableCellRenderer centro = criarRenderer(SwingConstants.CENTER, new Color(186, 230, 253));
+        DefaultTableCellRenderer esquerda = criarRenderer(SwingConstants.LEFT, Color.WHITE);
+        tabela.getColumnModel().getColumn(0).setCellRenderer(centro);
+        tabela.getColumnModel().getColumn(1).setCellRenderer(esquerda);
+        tabela.getColumnModel().getColumn(2).setCellRenderer(esquerda);
+        tabela.getColumnModel().getColumn(3).setCellRenderer(centro);
+        tabela.getColumnModel().getColumn(4).setCellRenderer(centro);
 
         JScrollPane scrollPane = new JScrollPane(tabela);
         scrollPane.setOpaque(false);
         scrollPane.getViewport().setOpaque(false);
         scrollPane.setBorder(null);
 
-        painelCardTabela.add(scrollPane, BorderLayout.CENTER);
-        add(painelCardTabela, BorderLayout.CENTER);
+        JPanel card = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(10, 22, 40));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                g2.setColor(new Color(23, 42, 69));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
+                g2.dispose();
+            }
+        };
+        card.setOpaque(false);
+        card.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        card.add(scrollPane, BorderLayout.CENTER);
+        return card;
+    }
 
-        // -----------------------------------------------------------------
-        // 3. RODAPÉ (TOTAL)
-        // -----------------------------------------------------------------
-        JPanel painelRodape = new JPanel(new BorderLayout());
-        painelRodape.setOpaque(false);
-        painelRodape.setPreferredSize(new Dimension(0, 35));
-
+    /** Rodapé: mostra "Total: X máquinas". */
+    private JPanel criarRodape() {
         lblTotalMaquinas = new JLabel();
         lblTotalMaquinas.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         lblTotalMaquinas.setForeground(new Color(148, 163, 184));
 
-        JPanel painelPaginacao = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        painelPaginacao.setOpaque(false);
-
+        JPanel painelRodape = new JPanel(new BorderLayout());
+        painelRodape.setOpaque(false);
+        painelRodape.setPreferredSize(new Dimension(0, 35));
         painelRodape.add(lblTotalMaquinas, BorderLayout.WEST);
-        painelRodape.add(painelPaginacao, BorderLayout.EAST);
-
-        add(painelRodape, BorderLayout.SOUTH);
-
-        // Carrega as máquinas do banco (também atualiza o "Total: X máquinas")
-        carregarMaquinas();
+        return painelRodape;
     }
 
-    /** Recarrega a tabela a partir do banco. Pode ser chamado por outras telas. */
-    public void recarregar() {
-        carregarMaquinas();
-    }
-
-    /** Usado por outras telas (ex.: Partidas): devolve o nome da máquina ou null se não existir. */
-    public String buscarNomePorId(String idComoTexto) {
-        if (idComoTexto == null) {
-            return null;
-        }
-        String id = idComoTexto.trim();
-        for (int i = 0; i < modeloTabela.getRowCount(); i++) {
-            if (String.valueOf(modeloTabela.getValueAt(i, 0)).trim().equals(id)) {
-                return String.valueOf(modeloTabela.getValueAt(i, 1));
-            }
-        }
-        return null;
-    }
-
-    private void atualizarTotal() {
-        int count = tabela.getRowCount();
-        lblTotalMaquinas.setText("Total: " + count + (count == 1 ? " máquina" : " máquinas"));
-    }
-
-    // -----------------------------------------------------------------
-    // BANCO DE DADOS - tabela `Máquinas`
-    // (ID_Máquina, Nome, Tipo_Jogo, Valor_Partida, Ativo)
+    // =========================================================================
+    // BANCO DE DADOS
+    // Tabela `máquinas` (ID_Máquina, Nome, Tipo_Jogo, Valor_Partida, Ativo).
     // Nomes com acento ficam entre crases.
-    // -----------------------------------------------------------------
+    // =========================================================================
+
+    /** Conexao.conectar() devolve null quando falha; aqui vira SQLException para mostrar a mensagem de erro. */
+    private Connection conectar() throws SQLException {
+        Connection con = Conexao.conectar();
+        if (con == null) {
+            throw new SQLException("Não foi possível conectar ao banco de dados.");
+        }
+        return con;
+    }
 
     /** SELECT de todas as máquinas e preenchimento da tabela. */
     private void carregarMaquinas() {
@@ -382,7 +367,7 @@ public class TelaMaquinas extends JPanel {
         }
     }
 
-    /** Traduz erros para mensagens amigáveis. */
+    /** Traduz erros do banco para mensagens amigáveis. */
     private String mensagemDeErro(SQLException ex) {
         if (ex.getErrorCode() == 3819) { // CHECK (Valor_Partida >= 0)
             return "O Valor da partida não pode ser negativo.";
@@ -390,46 +375,12 @@ public class TelaMaquinas extends JPanel {
         return "Erro ao salvar no banco de dados:\n" + ex.getMessage();
     }
 
-    /** Lê o ID real (numérico) da linha do modelo: "007" -> 7. */
-    /** Exclui a máquina selecionada (só se não tiver partidas ligadas a ela). */
-    private void excluirSelecionado() {
-        int linha = linhaSelecionadaNoModelo();
-        if (linha < 0) {
-            return;
-        }
-        if (!Exclusao.confirmar(this, "a máquina " + String.valueOf(modeloTabela.getValueAt(linha, 1)).trim())) {
-            return;
-        }
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement("DELETE FROM `máquinas` WHERE `ID_Máquina` = ?")) {
-            ps.setLong(1, idDaLinha(linha));
-            ps.executeUpdate();
-        } catch (SQLException ex) {
-            Exclusao.erro(this, ex);
-            return;
-        }
-        carregarMaquinas();
-    }
+    // =========================================================================
+    // AÇÕES: CADASTRAR / EDITAR / EXCLUIR
+    // Janela (modal) de cadastro e edição, com validações, e exclusão.
+    // =========================================================================
 
-    private long idDaLinha(int linhaModelo) {
-        return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
-    }
-
-    /** 5 -> "5 créditos" (singular quando for 1). */
-    private String formatarValor(long valor) {
-        return valor + (valor == 1 ? " crédito" : " créditos");
-    }
-
-    /** "5 créditos" -> 5 */
-    private long valorDaLinha(int linhaModelo) {
-        String texto = String.valueOf(modeloTabela.getValueAt(linhaModelo, 3)).trim();
-        return Long.parseLong(texto.split(" ")[0]);
-    }
-
-    // -----------------------------------------------------------------
-    // 4. MODAL DE CADASTRO / EDIÇÃO
-    // -----------------------------------------------------------------
-    // linhaModelo < 0 => nova máquina; senão edita a linha indicada
+    /** Abre o formulário. linhaModelo < 0 => nova máquina; senão edita a linha indicada. */
     private void abrirModal(int linhaModelo) {
         boolean edicao = linhaModelo >= 0;
         java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
@@ -439,10 +390,7 @@ public class TelaMaquinas extends JPanel {
         modal.setLocationRelativeTo(parentWindow);
         modal.setLayout(new BorderLayout());
 
-        JPanel painelForm = new JPanel(new GridLayout(8, 1, 2, 2));
-        painelForm.setBackground(new Color(10, 22, 40));
-        painelForm.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 25));
-
+        // ---------- Campos do formulário ----------
         JTextField txtNome = criarCampoTexto();
         JTextField txtTipo = criarCampoTexto();
         JTextField txtValor = criarCampoTexto();
@@ -458,6 +406,9 @@ public class TelaMaquinas extends JPanel {
             cmbStatus.setSelectedItem(modeloTabela.getValueAt(linhaModelo, 4));
         }
 
+        JPanel painelForm = new JPanel(new GridLayout(8, 1, 2, 2));
+        painelForm.setBackground(new Color(10, 22, 40));
+        painelForm.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 25));
         painelForm.add(criarLabel("Nome da máquina (máx. 50 caracteres):"));
         painelForm.add(txtNome);
         painelForm.add(criarLabel("Tipo de jogo (ex.: Boliche, Corrida):"));
@@ -467,9 +418,7 @@ public class TelaMaquinas extends JPanel {
         painelForm.add(criarLabel("Status:"));
         painelForm.add(cmbStatus);
 
-        JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
-        painelBotoes.setBackground(new Color(2, 12, 27));
-
+        // ---------- Botões ----------
         JButton btnCancelar = new JButton("Cancelar");
         btnCancelar.setBackground(new Color(71, 85, 105));
         btnCancelar.setForeground(Color.WHITE);
@@ -481,33 +430,27 @@ public class TelaMaquinas extends JPanel {
         btnSalvar.setForeground(Color.WHITE);
         btnSalvar.setFocusPainted(false);
         btnSalvar.addActionListener(e -> {
+            // ---------- Validações ----------
             String nome = txtNome.getText().trim();
             String tipo = txtTipo.getText().trim();
             long valor;
 
             if (nome.isEmpty() || nome.length() > 50) {
-                JOptionPane.showMessageDialog(modal, "Informe o Nome da máquina (até 50 caracteres).", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+                aviso(modal, "Informe o Nome da máquina (até 50 caracteres).");
                 return;
             }
             if (tipo.isEmpty() || tipo.length() > 50) {
-                JOptionPane.showMessageDialog(modal, "Informe o Tipo de jogo (até 50 caracteres).", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+                aviso(modal, "Informe o Tipo de jogo (até 50 caracteres).");
                 return;
             }
-
             try {
                 valor = Long.parseLong(txtValor.getText().trim());
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(modal,
-                        "O Valor da partida deve ser um número inteiro de créditos.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+                aviso(modal, "O Valor da partida deve ser um número inteiro de créditos.");
                 return;
             }
             if (valor < 0) {
-                JOptionPane.showMessageDialog(modal,
-                        "O Valor da partida não pode ser negativo.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
+                aviso(modal, "O Valor da partida não pode ser negativo.");
                 return;
             }
 
@@ -546,6 +489,8 @@ public class TelaMaquinas extends JPanel {
             modal.dispose();
         });
 
+        JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        painelBotoes.setBackground(new Color(2, 12, 27));
         painelBotoes.add(btnCancelar);
         painelBotoes.add(btnSalvar);
 
@@ -554,7 +499,96 @@ public class TelaMaquinas extends JPanel {
         modal.setVisible(true);
     }
 
-    // Botão de lápis azul (ícone desenhado em código, sem depender de imagem/fonte)
+    /** Exclui a máquina selecionada (só se não tiver partidas ligadas a ela). */
+    private void excluirSelecionado() {
+        int linha = linhaSelecionadaNoModelo();
+        if (linha < 0) {
+            return;
+        }
+        if (!Exclusao.confirmar(this, "a máquina " + String.valueOf(modeloTabela.getValueAt(linha, 1)).trim())) {
+            return;
+        }
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement("DELETE FROM `máquinas` WHERE `ID_Máquina` = ?")) {
+            ps.setLong(1, idDaLinha(linha));
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            Exclusao.erro(this, ex);
+            return;
+        }
+        carregarMaquinas();
+    }
+
+    // =========================================================================
+    // UTILITÁRIOS
+    // Conversões tela <-> banco, total, linha selecionada e avisos.
+    // =========================================================================
+
+    private void atualizarTotal() {
+        int count = tabela.getRowCount();
+        lblTotalMaquinas.setText("Total: " + count + (count == 1 ? " máquina" : " máquinas"));
+    }
+
+    /** Lê o ID real (numérico) da linha do modelo: "007" -> 7. */
+    private long idDaLinha(int linhaModelo) {
+        return Long.parseLong(String.valueOf(modeloTabela.getValueAt(linhaModelo, 0)).trim());
+    }
+
+    /** 5 -> "5 créditos" (singular quando for 1). */
+    private String formatarValor(long valor) {
+        return valor + (valor == 1 ? " crédito" : " créditos");
+    }
+
+    /** "5 créditos" -> 5 */
+    private long valorDaLinha(int linhaModelo) {
+        String texto = String.valueOf(modeloTabela.getValueAt(linhaModelo, 3)).trim();
+        return Long.parseLong(texto.split(" ")[0]);
+    }
+
+    /** Linha selecionada convertida para o índice do modelo (considera busca/ordenação); -1 se nenhuma. */
+    private int linhaSelecionadaNoModelo() {
+        int viewRow = tabela.getSelectedRow();
+        if (viewRow < 0) {
+            JOptionPane.showMessageDialog(this, "Selecione uma linha da tabela para editar.", "Aviso",
+                    JOptionPane.WARNING_MESSAGE);
+            return -1;
+        }
+        return tabela.convertRowIndexToModel(viewRow);
+    }
+
+    private void aviso(JDialog modal, String mensagem) {
+        JOptionPane.showMessageDialog(modal, mensagem, "Aviso", JOptionPane.WARNING_MESSAGE);
+    }
+
+    // =========================================================================
+    // COMPONENTES VISUAIS
+    // Fábricas de botões, rótulos, campos e renderizadores no estilo da tela.
+    // =========================================================================
+
+    /** Botão azul arredondado "+ Nova Máquina". */
+    private JButton criarBotaoNovo() {
+        JButton btn = new JButton("+ Nova Máquina") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(14, 116, 233));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        btn.setPreferredSize(new Dimension(150, 38));
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btn.setForeground(Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+
+    /** Botão quadrado com um lápis azul (ícone desenhado em código, sem imagem). */
     private JButton criarBotaoEditar() {
         JButton btn = new JButton() {
             @Override
@@ -589,14 +623,12 @@ public class TelaMaquinas extends JPanel {
         return btn;
     }
 
-    private int linhaSelecionadaNoModelo() {
-        int viewRow = tabela.getSelectedRow();
-        if (viewRow < 0) {
-            JOptionPane.showMessageDialog(this, "Selecione uma linha da tabela para editar.", "Aviso",
-                    JOptionPane.WARNING_MESSAGE);
-            return -1;
-        }
-        return tabela.convertRowIndexToModel(viewRow);
+    private DefaultTableCellRenderer criarRenderer(int alinhamento, Color corTexto) {
+        DefaultTableCellRenderer r = new DefaultTableCellRenderer();
+        r.setHorizontalAlignment(alinhamento);
+        r.setBackground(new Color(10, 22, 40));
+        r.setForeground(corTexto);
+        return r;
     }
 
     private JLabel criarLabel(String texto) {
@@ -606,6 +638,7 @@ public class TelaMaquinas extends JPanel {
         return lbl;
     }
 
+    /** Campo de texto padrão do formulário (fundo escuro, borda azul). */
     private JTextField criarCampoTexto() {
         JTextField txt = new JTextField();
         txt.setBackground(new Color(2, 12, 27));

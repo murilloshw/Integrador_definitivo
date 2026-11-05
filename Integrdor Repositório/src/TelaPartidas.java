@@ -35,131 +35,74 @@ import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
- 
+
 /**
- * Tela de Partidas (mesma estrutura de TelaMaquinas / TelaCartao).
+ * Tela de PARTIDAS: histórico de jogadas feitas com os cartões.
  *
- * Tabela: ID da partida, Data/Hora, Nome, ID do cartão, Novo saldo (ex.: 1000
- * (-15)),
- * Máquina utilizada e Pontos ganhos.
- * Botão "Simular Partida": abre um modal (mesmo design dos outros) onde se
- * informa
- * o cartão e a máquina. Se o cartão tiver saldo, o valor da partida é debitado;
- * se não tiver, a tentativa aparece na tabela como "Saldo insuficiente".
+ * A tabela mostra ID da partida, data/hora, cliente, cartão, novo saldo
+ * (ex.: "1000 (-15)"), máquina e pontos ganhos. O botão "Simular Partida" abre
+ * um formulário onde se informa o cartão e a máquina: se houver saldo, o valor
+ * é debitado; se não, a tentativa fica registrada como "Saldo insuficiente".
  *
- * Os dados ficam na tabela `Partidas` do banco (ID_Partida, ID_Cartão,
- * ID_Máquina,
- * Data_Hora, Créditos_Gastos, Pontos_Obtidos).
+ * Banco: tabela `partidas` (ID_Partida, ID_Cartão, ID_Máquina, Data_Hora,
+ * Créditos_Gastos, Pontos_Obtidos, Saldo_Apos).
  */
 public class TelaPartidas extends JPanel {
- 
+
+    // =========================================================================
+    // CONSTANTES
+    // Textos fixos da tela.
+    // =========================================================================
     private static final String PLACEHOLDER_BUSCA = "Buscar por nome, cartão ou máquina...";
     private static final String SALDO_INSUFICIENTE = "Saldo insuficiente";
- 
+
+    // =========================================================================
+    // CAMPOS
+    // =========================================================================
     private JTable tabela;
     private DefaultTableModel modeloTabela;
     private TableRowSorter<DefaultTableModel> sorter;
     private JTextField txtBuscar;
     private JLabel lblTotalPartidas;
- 
-    // -----------------------------------------------------------------
-    // CONEXÃO COM O BANCO
-    // -----------------------------------------------------------------
-    private Connection conectar() throws SQLException {
-        Connection con = Conexao.conectar();
-        if (con == null) {
-            throw new SQLException("Não foi possível conectar ao banco de dados.");
-        }
-        return con;
-    }
- 
+
+    /** Evita consultar o banco toda vez para saber se a coluna Saldo_Apos existe. */
+    private static boolean colunaPronta = false;
+
+    // =========================================================================
+    // CONSTRUTOR
+    // Monta topo (título, busca, botão), tabela e rodapé.
+    // Os dados são carregados quando o App chama recarregar().
+    // =========================================================================
     public TelaPartidas() {
         setBackground(new Color(2, 12, 27)); // Fundo azul marinho escuro
         setLayout(new BorderLayout(15, 12));
         setBorder(BorderFactory.createEmptyBorder(20, 25, 15, 25));
- 
-        // -----------------------------------------------------------------
-        // 1. TOPO: Título, Busca e Botão "Simular Partida"
-        // -----------------------------------------------------------------
+
+        add(criarTopo(), BorderLayout.NORTH);
+        add(criarAreaTabela(), BorderLayout.CENTER);
+        add(criarRodape(), BorderLayout.SOUTH);
+
+        atualizarTotal();
+    }
+
+    /** Recarrega a tabela a partir do banco. Chamado pelo App ao abrir a tela. */
+    public void recarregar() {
+        carregarPartidas();
+    }
+
+    // =========================================================================
+    // MONTAGEM DA INTERFACE
+    // =========================================================================
+
+    /** Título + campo de busca + botão "Simular Partida". */
+    private JPanel criarTopo() {
         JPanel painelTopoGeral = new JPanel(new BorderLayout(0, 15));
         painelTopoGeral.setOpaque(false);
- 
+
         JLabel lblTitulo = new JLabel("Partidas");
         lblTitulo.setFont(new Font("Segoe UI", Font.BOLD, 22));
         lblTitulo.setForeground(Color.WHITE);
- 
-        JPanel painelAcoes = new JPanel(new BorderLayout(15, 0));
-        painelAcoes.setOpaque(false);
- 
-        // Campo de Busca
-        JPanel painelBusca = new JPanel(new BorderLayout(8, 0)) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(new Color(13, 27, 46));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
-                g2.setColor(new Color(30, 48, 80));
-                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
-                g2.dispose();
-            }
-        };
-        painelBusca.setOpaque(false);
-        painelBusca.setPreferredSize(new Dimension(360, 38));
-        painelBusca.setBorder(BorderFactory.createEmptyBorder(5, 12, 5, 12));
- 
-        JLabel lblLupa = new JLabel("🔍");
-        lblLupa.setForeground(new Color(148, 163, 184));
- 
-        txtBuscar = new JTextField(PLACEHOLDER_BUSCA);
-        txtBuscar.setOpaque(false);
-        txtBuscar.setForeground(new Color(100, 116, 139));
-        txtBuscar.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        txtBuscar.setBorder(null);
- 
-        txtBuscar.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusGained(java.awt.event.FocusEvent evt) {
-                if (txtBuscar.getText().equals(PLACEHOLDER_BUSCA)) {
-                    txtBuscar.setText("");
-                    txtBuscar.setForeground(Color.WHITE);
-                }
-            }
- 
-            @Override
-            public void focusLost(java.awt.event.FocusEvent evt) {
-                if (txtBuscar.getText().isEmpty()) {
-                    txtBuscar.setForeground(new Color(100, 116, 139));
-                    txtBuscar.setText(PLACEHOLDER_BUSCA);
-                }
-            }
-        });
-        addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    System.exit(0);
-                }
-            }
-        });
-        txtBuscar.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyReleased(KeyEvent e) {
-                String texto = txtBuscar.getText();
-                if (texto.equals(PLACEHOLDER_BUSCA) || texto.trim().isEmpty()) {
-                    sorter.setRowFilter(null);
-                } else {
-                    // Pattern.quote evita erro se o usuário digitar caracteres como ( ) + . *
-                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(texto.trim())));
-                }
-                atualizarTotal();
-            }
-        });
- 
-        painelBusca.add(lblLupa, BorderLayout.WEST);
-        painelBusca.add(txtBuscar, BorderLayout.CENTER);
- 
-        // Botão Simular Partida
+
         JButton btnSimular = new JButton("▶ Simular Partida") {
             @Override
             protected void paintComponent(Graphics g) {
@@ -179,22 +122,87 @@ public class TelaPartidas extends JPanel {
         btnSimular.setBorderPainted(false);
         btnSimular.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnSimular.addActionListener(e -> abrirModal());
- 
-        painelAcoes.add(painelBusca, BorderLayout.WEST);
- 
+
         JPanel painelBotoesTopo = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         painelBotoesTopo.setOpaque(false);
         painelBotoesTopo.add(btnSimular);
+
+        JPanel painelAcoes = new JPanel(new BorderLayout(15, 0));
+        painelAcoes.setOpaque(false);
+        painelAcoes.add(criarBusca(), BorderLayout.WEST);
         painelAcoes.add(painelBotoesTopo, BorderLayout.EAST);
- 
+
         painelTopoGeral.add(lblTitulo, BorderLayout.NORTH);
         painelTopoGeral.add(painelAcoes, BorderLayout.CENTER);
- 
-        add(painelTopoGeral, BorderLayout.NORTH);
- 
-        // -----------------------------------------------------------------
-        // 2. TABELA DE PARTIDAS (Design Suave)
-        // -----------------------------------------------------------------
+        return painelTopoGeral;
+    }
+
+    /** Campo de busca com placeholder; filtra a tabela a cada tecla. */
+    private JPanel criarBusca() {
+        JPanel painelBusca = new JPanel(new BorderLayout(8, 0)) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(13, 27, 46));
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.setColor(new Color(30, 48, 80));
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+                g2.dispose();
+            }
+        };
+        painelBusca.setOpaque(false);
+        painelBusca.setPreferredSize(new Dimension(360, 38));
+        painelBusca.setBorder(BorderFactory.createEmptyBorder(5, 12, 5, 12));
+
+        JLabel lblLupa = new JLabel("🔍");
+        lblLupa.setForeground(new Color(148, 163, 184));
+
+        txtBuscar = new JTextField(PLACEHOLDER_BUSCA);
+        txtBuscar.setOpaque(false);
+        txtBuscar.setForeground(new Color(100, 116, 139));
+        txtBuscar.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        txtBuscar.setBorder(null);
+
+        // Placeholder: some ao ganhar foco e volta se o campo ficar vazio
+        txtBuscar.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusGained(java.awt.event.FocusEvent evt) {
+                if (txtBuscar.getText().equals(PLACEHOLDER_BUSCA)) {
+                    txtBuscar.setText("");
+                    txtBuscar.setForeground(Color.WHITE);
+                }
+            }
+
+            @Override
+            public void focusLost(java.awt.event.FocusEvent evt) {
+                if (txtBuscar.getText().isEmpty()) {
+                    txtBuscar.setForeground(new Color(100, 116, 139));
+                    txtBuscar.setText(PLACEHOLDER_BUSCA);
+                }
+            }
+        });
+        txtBuscar.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyReleased(KeyEvent e) {
+                String texto = txtBuscar.getText();
+                if (texto.equals(PLACEHOLDER_BUSCA) || texto.trim().isEmpty()) {
+                    sorter.setRowFilter(null);
+                } else {
+                    // Pattern.quote evita erro se o usuário digitar caracteres como ( ) + . *
+                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(texto.trim())));
+                }
+                atualizarTotal();
+            }
+        });
+
+        painelBusca.add(lblLupa, BorderLayout.WEST);
+        painelBusca.add(txtBuscar, BorderLayout.CENTER);
+        return painelBusca;
+    }
+
+    /** Tabela de partidas dentro de um card arredondado. */
+    private JPanel criarAreaTabela() {
         JPanel painelCardTabela = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -209,48 +217,46 @@ public class TelaPartidas extends JPanel {
         };
         painelCardTabela.setOpaque(false);
         painelCardTabela.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
- 
+
         String[] colunas = { "ID Partida ", "Data/Hora ", "Nome ", "ID Cartão ", "Novo Saldo ", "Máquina Utilizada ",
                 "Pontos Ganhos " };
- 
+
         modeloTabela = new DefaultTableModel(colunas, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
- 
+
         tabela = new JTable(modeloTabela);
         tabela.setSelectionBackground(new Color(23, 55, 94));
         tabela.setSelectionForeground(Color.WHITE);
         sorter = new TableRowSorter<>(modeloTabela);
         tabela.setRowSorter(sorter);
- 
-        // IMPEDE QUE O USUÁRIO ARRASTE AS COLUNAS
-        tabela.getTableHeader().setReorderingAllowed(false);
- 
-        // Estilização da tabela
+        tabela.getTableHeader().setReorderingAllowed(false); // impede arrastar as colunas
+
         tabela.setBackground(new Color(10, 22, 40));
         tabela.setForeground(new Color(226, 232, 240));
         tabela.setGridColor(new Color(18, 35, 60));
         tabela.setRowHeight(42);
         tabela.setFont(new Font("Segoe UI", Font.PLAIN, 13));
- 
+
         tabela.getTableHeader().setBackground(new Color(10, 22, 40));
         tabela.getTableHeader().setForeground(new Color(148, 163, 184));
         tabela.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
         tabela.getTableHeader().setPreferredSize(new Dimension(0, 40));
- 
+
+        // Renderizadores: centralizado (azul claro), à esquerda (branco) e saldo
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
         centerRenderer.setBackground(new Color(10, 22, 40));
         centerRenderer.setForeground(new Color(186, 230, 253));
- 
+
         DefaultTableCellRenderer leftRenderer = new DefaultTableCellRenderer();
         leftRenderer.setHorizontalAlignment(SwingConstants.LEFT);
         leftRenderer.setBackground(new Color(10, 22, 40));
         leftRenderer.setForeground(Color.WHITE);
- 
+
         // Saldo: igual ao centralizado, mas "Saldo insuficiente" aparece em vermelho
         DefaultTableCellRenderer saldoRenderer = new DefaultTableCellRenderer() {
             @Override
@@ -269,67 +275,55 @@ public class TelaPartidas extends JPanel {
         };
         saldoRenderer.setHorizontalAlignment(SwingConstants.CENTER);
         saldoRenderer.setBackground(new Color(10, 22, 40));
- 
-        tabela.getColumnModel().getColumn(0).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(1).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(2).setCellRenderer(leftRenderer);
-        tabela.getColumnModel().getColumn(3).setCellRenderer(centerRenderer);
-        tabela.getColumnModel().getColumn(4).setCellRenderer(saldoRenderer);
-        tabela.getColumnModel().getColumn(5).setCellRenderer(leftRenderer);
-        tabela.getColumnModel().getColumn(6).setCellRenderer(centerRenderer);
- 
+
+        DefaultTableCellRenderer[] porColuna = { centerRenderer, centerRenderer, leftRenderer, centerRenderer,
+                saldoRenderer, leftRenderer, centerRenderer };
+        for (int c = 0; c < porColuna.length; c++) {
+            tabela.getColumnModel().getColumn(c).setCellRenderer(porColuna[c]);
+        }
+
         JScrollPane scrollPane = new JScrollPane(tabela);
         scrollPane.setOpaque(false);
         scrollPane.getViewport().setOpaque(false);
         scrollPane.setBorder(null);
- 
+
         painelCardTabela.add(scrollPane, BorderLayout.CENTER);
-        add(painelCardTabela, BorderLayout.CENTER);
- 
-        // -----------------------------------------------------------------
-        // 3. RODAPÉ (TOTAL)
-        // -----------------------------------------------------------------
+        return painelCardTabela;
+    }
+
+    /** Rodapé com o total de partidas. */
+    private JPanel criarRodape() {
         JPanel painelRodape = new JPanel(new BorderLayout());
         painelRodape.setOpaque(false);
         painelRodape.setPreferredSize(new Dimension(0, 35));
- 
+
         lblTotalPartidas = new JLabel();
         lblTotalPartidas.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         lblTotalPartidas.setForeground(new Color(148, 163, 184));
- 
-        JPanel painelPaginacao = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        painelPaginacao.setOpaque(false);
- 
+
         painelRodape.add(lblTotalPartidas, BorderLayout.WEST);
-        painelRodape.add(painelPaginacao, BorderLayout.EAST);
- 
-        add(painelRodape, BorderLayout.SOUTH);
- 
-        atualizarTotal();
+        return painelRodape;
     }
- 
-    /** Recarrega a tabela a partir do banco. Chamado pelo App ao abrir a tela. */
-    public void recarregar() {
-        carregarPartidas();
-    }
- 
+
     private void atualizarTotal() {
         int count = tabela.getRowCount();
         lblTotalPartidas.setText("Total: " + count + (count == 1 ? " partida" : " partidas"));
     }
- 
-    // -----------------------------------------------------------------
-    // BANCO DE DADOS - tabela `partidas`
-    // (ID_Partida, ID_Cartão, ID_Máquina, Data_Hora, Créditos_Gastos,
-    // Pontos_Obtidos)
-    // -----------------------------------------------------------------
- 
-    /**
-     * Garante a coluna Saldo_Apos (saldo do cartão logo depois da partida).
-     * Se ainda não existir na tabela, cria uma única vez.
-     */
-    private static boolean colunaPronta = false;
- 
+
+    // =========================================================================
+    // CARREGAMENTO DE DADOS (BANCO)
+    // Leitura das partidas e das máquinas disponíveis.
+    // =========================================================================
+
+    private Connection conectar() throws SQLException {
+        Connection con = Conexao.conectar();
+        if (con == null) {
+            throw new SQLException("Não foi possível conectar ao banco de dados.");
+        }
+        return con;
+    }
+
+    /** Cria a coluna Saldo_Apos (saldo do cartão logo depois da partida) se ainda não existir. */
     private static void garantirColunaSaldo(Connection con) throws SQLException {
         if (colunaPronta) {
             return;
@@ -350,12 +344,10 @@ public class TelaPartidas extends JPanel {
         }
         colunaPronta = true;
     }
- 
+
     /**
-     * SELECT de todas as partidas (com nome do cliente e da máquina via JOIN).
-     * Novo Saldo = saldo do cartão logo após a partida + (créditos gastos).
-     * Partida com 0 créditos gastos em máquina que cobra créditos = tentativa sem
-     * saldo.
+     * Busca todas as partidas (com nome do cliente e da máquina via JOIN) e preenche a tabela.
+     * Partida com 0 créditos gastos numa máquina que cobra = tentativa sem saldo.
      */
     private void carregarPartidas() {
         String sql = "SELECT p.ID_Partida AS id_partida, p.Data_Hora AS data_hora, "
@@ -367,15 +359,15 @@ public class TelaPartidas extends JPanel {
                 + "LEFT JOIN clientes cl ON cl.ID_Cliente = c.ID_Cliente "
                 + "LEFT JOIN `máquinas` m ON m.`ID_Máquina` = p.`ID_Máquina` "
                 + "ORDER BY p.ID_Partida DESC";
- 
+
         modeloTabela.setRowCount(0);
         SimpleDateFormat fmt = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
- 
+
         try (Connection con = conectar()) {
             garantirColunaSaldo(con);
             try (PreparedStatement ps = con.prepareStatement(sql);
                     ResultSet rs = ps.executeQuery()) {
- 
+
                 while (rs.next()) {
                     String nome = rs.getString("nome_cliente");
                     String maquina = rs.getString("maquina");
@@ -385,7 +377,8 @@ public class TelaPartidas extends JPanel {
                     boolean semSaldoGravado = rs.wasNull(); // partidas antigas, de antes da coluna existir
                     boolean insuficiente = gastos == 0 && rs.getLong("valor") > 0;
                     long pontos = rs.getLong("pontos");
- 
+
+                    // "Novo Saldo" = saldo após a partida + (créditos gastos)
                     String textoSaldo;
                     if (insuficiente) {
                         textoSaldo = SALDO_INSUFICIENTE;
@@ -393,7 +386,7 @@ public class TelaPartidas extends JPanel {
                         textoSaldo = (semSaldoGravado ? "—" : String.valueOf(saldoApos))
                                 + " (" + (gastos > 0 ? "-" : "") + gastos + ")";
                     }
- 
+
                     modeloTabela.addRow(new Object[] {
                             String.format("%03d", rs.getLong("id_partida")),
                             data != null ? fmt.format(data) : "—",
@@ -410,16 +403,16 @@ public class TelaPartidas extends JPanel {
                     "Não foi possível carregar as partidas do banco de dados:\n" + ex.getMessage(),
                     "Erro de banco de dados", JOptionPane.ERROR_MESSAGE);
         }
- 
+
         atualizarTotal();
     }
- 
-    /** Máquinas disponíveis para o combo do modal. */
+
+    /** Máquinas ativas, para o combo do formulário. */
     private List<MaquinaItem> carregarMaquinasDisponiveis() throws SQLException {
         String sql = "SELECT `ID_Máquina` AS id_maquina, Nome, Valor_Partida "
                 + "FROM `máquinas` WHERE Ativo = TRUE ORDER BY Nome";
         List<MaquinaItem> lista = new ArrayList<>();
- 
+
         try (Connection con = conectar();
                 PreparedStatement ps = con.prepareStatement(sql);
                 ResultSet rs = ps.executeQuery()) {
@@ -430,23 +423,157 @@ public class TelaPartidas extends JPanel {
         }
         return lista;
     }
- 
+
+    // =========================================================================
+    // AÇÃO: SIMULAR PARTIDA
+    // Formulário (modal) + regra de negócio que debita o cartão e grava a partida.
+    // =========================================================================
+
+    /** Abre o formulário "Simular Partida": cartão, máquina e pontos ganhos. */
+    private void abrirModal() {
+        List<MaquinaItem> maquinas;
+        try {
+            maquinas = carregarMaquinasDisponiveis();
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this,
+                    "Não foi possível carregar as máquinas:\n" + ex.getMessage(),
+                    "Erro de banco de dados", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        if (maquinas.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Não há máquinas disponíveis. Cadastre ou ative uma máquina primeiro.", "Aviso",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
+        JDialog modal = new JDialog(parentWindow, "Simular Partida",
+                java.awt.Dialog.ModalityType.APPLICATION_MODAL);
+        modal.setSize(440, 400);
+        modal.setLocationRelativeTo(parentWindow);
+        modal.setLayout(new BorderLayout());
+
+        // --- Campos ---
+        JPanel painelForm = new JPanel(new GridLayout(6, 1, 2, 2));
+        painelForm.setBackground(new Color(10, 22, 40));
+        painelForm.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 25));
+
+        JTextField txtCartao = criarCampoTexto();
+        JComboBox<MaquinaItem> cmbMaquina = new JComboBox<>(maquinas.toArray(new MaquinaItem[0]));
+        cmbMaquina.setBackground(new Color(2, 12, 27));
+        cmbMaquina.setForeground(Color.WHITE);
+        cmbMaquina.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        JTextField txtPontos = criarCampoTexto();
+        txtPontos.setText("0");
+
+        painelForm.add(criarLabel("Número do cartão (ex.: 001):"));
+        painelForm.add(txtCartao);
+        painelForm.add(criarLabel("Máquina utilizada:"));
+        painelForm.add(cmbMaquina);
+        painelForm.add(criarLabel("Pontos ganhos na partida:"));
+        painelForm.add(txtPontos);
+
+        // --- Botões ---
+        JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        painelBotoes.setBackground(new Color(2, 12, 27));
+
+        JButton btnCancelar = new JButton("Cancelar");
+        btnCancelar.setBackground(new Color(71, 85, 105));
+        btnCancelar.setForeground(Color.WHITE);
+        btnCancelar.setFocusPainted(false);
+        btnCancelar.addActionListener(e -> modal.dispose());
+
+        JButton btnSalvar = new JButton("Simular Partida");
+        btnSalvar.setBackground(new Color(14, 116, 233));
+        btnSalvar.setForeground(Color.WHITE);
+        btnSalvar.setFocusPainted(false);
+        btnSalvar.addActionListener(e -> {
+            // Validações dos campos
+            long idCartao;
+            try {
+                idCartao = Long.parseLong(txtCartao.getText().trim());
+            } catch (NumberFormatException ex) {
+                aviso(modal, "Informe o número do cartão (somente números).");
+                return;
+            }
+            if (idCartao <= 0) {
+                aviso(modal, "Informe um número de cartão válido.");
+                return;
+            }
+
+            MaquinaItem maquina = (MaquinaItem) cmbMaquina.getSelectedItem();
+            if (maquina == null) {
+                aviso(modal, "Selecione uma máquina.");
+                return;
+            }
+
+            long pontosGanhos;
+            try {
+                pontosGanhos = Long.parseLong(txtPontos.getText().trim());
+            } catch (NumberFormatException ex) {
+                aviso(modal, "Pontos ganhos deve ser um número inteiro.");
+                return;
+            }
+            if (pontosGanhos < 0) {
+                aviso(modal, "Pontos ganhos não pode ser negativo.");
+                return;
+            }
+
+            // Executa a partida no banco
+            Resultado r;
+            try {
+                r = simularPartida(idCartao, maquina, pontosGanhos);
+            } catch (PartidaException ex) {
+                aviso(modal, ex.getMessage());
+                return; // mantém o modal aberto para o usuário corrigir
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage(),
+                        "Erro", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            carregarPartidas();
+
+            if (r.insuficiente) {
+                JOptionPane.showMessageDialog(modal,
+                        "Saldo insuficiente! A partida custa " + formatarCreditos(r.valor)
+                                + " e o cartão tem " + formatarCreditos(r.saldoApos) + ".",
+                        "Saldo insuficiente", JOptionPane.WARNING_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(modal,
+                        "Partida simulada com sucesso!\nSaldo restante: " + formatarCreditos(r.saldoApos)
+                                + "\nPontos ganhos: " + r.pontos,
+                        "Sucesso", JOptionPane.INFORMATION_MESSAGE);
+            }
+            modal.dispose();
+        });
+
+        painelBotoes.add(btnCancelar);
+        painelBotoes.add(btnSalvar);
+
+        modal.add(painelForm, BorderLayout.CENTER);
+        modal.add(painelBotoes, BorderLayout.SOUTH);
+        modal.setVisible(true);
+    }
+
     /**
-     * Simula uma partida em uma transação:
-     * - cartão precisa existir e estar ativo;
-     * - se o saldo cobre o valor da partida, debita e registra;
-     * - se não cobre, registra a tentativa como "Saldo insuficiente" (sem debitar).
+     * Simula uma partida numa transação:
+     * 1) cartão precisa existir e estar ativo;
+     * 2) máquina precisa existir e estar ativa;
+     * 3) se o saldo cobre o valor, debita os créditos e soma os pontos;
+     * 4) registra a partida (sem saldo = registrada como "Saldo insuficiente", sem debitar).
      */
     private Resultado simularPartida(long idCartao, MaquinaItem maquina, long pontosGanhos)
             throws SQLException, PartidaException {
         try (Connection con = conectar()) {
             garantirColunaSaldo(con); // DDL fora da transação
- 
+
             con.setAutoCommit(false);
             try {
                 long saldo;
                 String nomeCliente;
- 
+
                 // 1) cartão existe e está ativo? (trava a linha durante a transação)
                 try (PreparedStatement ps = con.prepareStatement(
                         "SELECT c.Creditos, c.Ativo, cl.Nome_Completo "
@@ -465,7 +592,7 @@ public class TelaPartidas extends JPanel {
                         nomeCliente = rs.getString("Nome_Completo");
                     }
                 }
- 
+
                 // 2) máquina continua disponível? valor atualizado
                 long valor;
                 try (PreparedStatement ps = con.prepareStatement(
@@ -481,12 +608,11 @@ public class TelaPartidas extends JPanel {
                         valor = rs.getLong("Valor_Partida");
                     }
                 }
- 
+
                 boolean insuficiente = saldo < valor;
                 long saldoApos = insuficiente ? saldo : saldo - valor;
- 
                 long pontos = insuficiente ? 0 : pontosGanhos;
- 
+
                 // 3) debita os créditos e soma os pontos (somente se houver saldo)
                 if (!insuficiente) {
                     try (PreparedStatement ps = con.prepareStatement(
@@ -498,7 +624,7 @@ public class TelaPartidas extends JPanel {
                         ps.executeUpdate();
                     }
                 }
- 
+
                 // 4) registra a partida (0 créditos gastos = tentativa sem saldo)
                 try (PreparedStatement ps = con.prepareStatement(
                         "INSERT INTO partidas (`ID_Cartão`, `ID_Máquina`, `Créditos_Gastos`, `Pontos_Obtidos`, Saldo_Apos) "
@@ -510,7 +636,7 @@ public class TelaPartidas extends JPanel {
                     ps.setLong(5, saldoApos);
                     ps.executeUpdate();
                 }
- 
+
                 con.commit();
                 return new Resultado(nomeCliente, insuficiente, valor, saldoApos, pontos);
             } catch (SQLException | PartidaException e) {
@@ -519,150 +645,29 @@ public class TelaPartidas extends JPanel {
             }
         }
     }
- 
+
+    // =========================================================================
+    // UTILITÁRIOS
+    // Formatação de texto e componentes com o estilo da tela.
+    // =========================================================================
+
     /** 5 -> "5 créditos" (singular quando for 1). */
     private String formatarCreditos(long valor) {
         return valor + (valor == 1 ? " crédito" : " créditos");
     }
- 
-    // -----------------------------------------------------------------
-    // 4. MODAL DE SIMULAÇÃO DE PARTIDA
-    // -----------------------------------------------------------------
-    private void abrirModal() {
-        List<MaquinaItem> maquinas;
-        try {
-            maquinas = carregarMaquinasDisponiveis();
-        } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this,
-                    "Não foi possível carregar as máquinas:\n" + ex.getMessage(),
-                    "Erro de banco de dados", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        if (maquinas.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                    "Não há máquinas disponíveis. Cadastre ou ative uma máquina primeiro.", "Aviso",
-                    JOptionPane.WARNING_MESSAGE);
-            return;
-        }
- 
-        java.awt.Window parentWindow = SwingUtilities.getWindowAncestor(this);
-        JDialog modal = new JDialog(parentWindow, "Simular Partida",
-                java.awt.Dialog.ModalityType.APPLICATION_MODAL);
-        modal.setSize(440, 400);
-        modal.setLocationRelativeTo(parentWindow);
-        modal.setLayout(new BorderLayout());
- 
-        JPanel painelForm = new JPanel(new GridLayout(6, 1, 2, 2));
-        painelForm.setBackground(new Color(10, 22, 40));
-        painelForm.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 25));
- 
-        JTextField txtCartao = criarCampoTexto();
-        JComboBox<MaquinaItem> cmbMaquina = new JComboBox<>(maquinas.toArray(new MaquinaItem[0]));
-        cmbMaquina.setBackground(new Color(2, 12, 27));
-        cmbMaquina.setForeground(Color.WHITE);
-        cmbMaquina.setFont(new Font("Segoe UI", Font.PLAIN, 13));
- 
-        painelForm.add(criarLabel("Número do cartão (ex.: 001):"));
-        painelForm.add(txtCartao);
-        painelForm.add(criarLabel("Máquina utilizada:"));
-        painelForm.add(cmbMaquina);
-        JTextField txtPontos = criarCampoTexto();
-        txtPontos.setText("0");
-        painelForm.add(criarLabel("Pontos ganhos na partida:"));
-        painelForm.add(txtPontos);
- 
-        JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
-        painelBotoes.setBackground(new Color(2, 12, 27));
- 
-        JButton btnCancelar = new JButton("Cancelar");
-        btnCancelar.setBackground(new Color(71, 85, 105));
-        btnCancelar.setForeground(Color.WHITE);
-        btnCancelar.setFocusPainted(false);
-        btnCancelar.addActionListener(e -> modal.dispose());
- 
-        JButton btnSalvar = new JButton("Simular Partida");
-        btnSalvar.setBackground(new Color(14, 116, 233));
-        btnSalvar.setForeground(Color.WHITE);
-        btnSalvar.setFocusPainted(false);
-        btnSalvar.addActionListener(e -> {
-            long idCartao;
-            try {
-                idCartao = Long.parseLong(txtCartao.getText().trim());
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(modal, "Informe o número do cartão (somente números).", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            if (idCartao <= 0) {
-                JOptionPane.showMessageDialog(modal, "Informe um número de cartão válido.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
-                return;
-            }
- 
-            MaquinaItem maquina = (MaquinaItem) cmbMaquina.getSelectedItem();
-            if (maquina == null) {
-                JOptionPane.showMessageDialog(modal, "Selecione uma máquina.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
-                return;
-            }
- 
-            long pontosGanhos;
-            try {
-                pontosGanhos = Long.parseLong(txtPontos.getText().trim());
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(modal, "Pontos ganhos deve ser um número inteiro.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            if (pontosGanhos < 0) {
-                JOptionPane.showMessageDialog(modal, "Pontos ganhos não pode ser negativo.", "Aviso",
-                        JOptionPane.WARNING_MESSAGE);
-                return;
-            }
- 
-            Resultado r;
-            try {
-                r = simularPartida(idCartao, maquina, pontosGanhos);
-            } catch (PartidaException ex) {
-                JOptionPane.showMessageDialog(modal, ex.getMessage(), "Aviso", JOptionPane.WARNING_MESSAGE);
-                return; // mantém o modal aberto para o usuário corrigir
-            } catch (SQLException ex) {
-                JOptionPane.showMessageDialog(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage(),
-                        "Erro", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
- 
-            carregarPartidas();
- 
-            if (r.insuficiente) {
-                JOptionPane.showMessageDialog(modal,
-                        "Saldo insuficiente! A partida custa " + formatarCreditos(r.valor)
-                                + " e o cartão tem " + formatarCreditos(r.saldoApos) + ".",
-                        "Saldo insuficiente", JOptionPane.WARNING_MESSAGE);
-            } else {
-                JOptionPane.showMessageDialog(modal,
-                        "Partida simulada com sucesso!\nSaldo restante: " + formatarCreditos(r.saldoApos)
-                                + "\nPontos ganhos: " + r.pontos,
-                        "Sucesso", JOptionPane.INFORMATION_MESSAGE);
-            }
-            modal.dispose();
-        });
- 
-        painelBotoes.add(btnCancelar);
-        painelBotoes.add(btnSalvar);
- 
-        modal.add(painelForm, BorderLayout.CENTER);
-        modal.add(painelBotoes, BorderLayout.SOUTH);
-        modal.setVisible(true);
+
+    /** Mensagem de aviso (amarela) sobre o formulário. */
+    private void aviso(Component pai, String mensagem) {
+        JOptionPane.showMessageDialog(pai, mensagem, "Aviso", JOptionPane.WARNING_MESSAGE);
     }
- 
+
     private JLabel criarLabel(String texto) {
         JLabel lbl = new JLabel(texto);
         lbl.setForeground(new Color(226, 232, 240));
         lbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
         return lbl;
     }
- 
+
     private JTextField criarCampoTexto() {
         JTextField txt = new JTextField();
         txt.setBackground(new Color(2, 12, 27));
@@ -674,29 +679,29 @@ public class TelaPartidas extends JPanel {
                 BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         return txt;
     }
- 
-    // -----------------------------------------------------------------
+
+    // =========================================================================
     // CLASSES AUXILIARES
-    // -----------------------------------------------------------------
- 
-    /** Item do combo de máquinas. */
+    // =========================================================================
+
+    /** Item do combo de máquinas (ex.: "001 - Pinball (5 créditos)"). */
     private static class MaquinaItem {
         final long id;
         final String nome;
         final long valor;
- 
+
         MaquinaItem(long id, String nome, long valor) {
             this.id = id;
             this.nome = nome;
             this.valor = valor;
         }
- 
+
         @Override
         public String toString() {
             return String.format("%03d", id) + " - " + nome + " (" + valor + (valor == 1 ? " crédito)" : " créditos)");
         }
     }
- 
+
     /** Resultado de uma simulação. */
     private static class Resultado {
         final String nomeCliente;
@@ -704,19 +709,17 @@ public class TelaPartidas extends JPanel {
         final long valor;
         final long saldoApos;
         final long pontos;
- 
+
         Resultado(String nomeCliente, boolean insuficiente, long valor, long saldoApos, long pontos) {
-            this.pontos = pontos;
             this.nomeCliente = nomeCliente;
             this.insuficiente = insuficiente;
             this.valor = valor;
             this.saldoApos = saldoApos;
+            this.pontos = pontos;
         }
     }
- 
-    /**
-     * Erro de regra de negócio (cartão inexistente/inativo, máquina indisponível).
-     */
+
+    /** Erro de regra de negócio (cartão inexistente/inativo, máquina indisponível). */
     private static class PartidaException extends Exception {
         PartidaException(String mensagem) {
             super(mensagem);
