@@ -106,14 +106,17 @@ public class App extends JFrame {
         telaBiblioteca.setVisible(false);
         layeredPane.add(telaBiblioteca, JLayeredPane.DEFAULT_LAYER);
 
-        // Quando um administrador confirma a saída, a tela é fechada (antes era null -> NullPointerException)
+        // Quando um administrador confirma a saída, a tela é fechada (antes era null ->
+        // NullPointerException)
         telaAutoatendimento = new TelaAutoatendimento(telaRecargas, this::fecharAutoatendimento);
         telaAutoatendimento.setBounds(0, 0, larguraTela, alturaTela);
         telaAutoatendimento.setVisible(false);
         layeredPane.add(telaAutoatendimento, JLayeredPane.POPUP_LAYER);
 
-        // Botão "Autoatendimento" da tela de Recargas: nunca tinha sido ligado a nada, por isso não abria.
-        // Só funcionários com permissão administrativa podem abrir o autoatendimento (o mesmo que sair dele).
+        // Botão "Autoatendimento" da tela de Recargas: nunca tinha sido ligado a nada,
+        // por isso não abria.
+        // Só funcionários com permissão administrativa podem abrir o autoatendimento (o
+        // mesmo que sair dele).
         telaRecargas.setAcaoAutoatendimento(() -> {
             if (!Sessao.isManagerMaster()) {
                 JOptionPane.showMessageDialog(this,
@@ -191,7 +194,8 @@ public class App extends JFrame {
                     mostrarTela(telaFuncionarios);
                 } else if (texto.equalsIgnoreCase("Biblioteca")) {
                     if (!Sessao.isBibliotecario()) {
-                        JOptionPane.showMessageDialog(this, "Apenas funcionários com cargo bibliotecário podem acessar a Biblioteca.",
+                        JOptionPane.showMessageDialog(this,
+                                "Apenas funcionários com cargo bibliotecário podem acessar a Biblioteca.",
                                 "Acesso negado", JOptionPane.WARNING_MESSAGE);
                         return;
                     }
@@ -342,4 +346,4 @@ public class App extends JFrame {
         ImageIcon logo = carregarLogo();
         return logo != null ? logo.getImage() : null;
     }
-}//app java ta dando jumpscares, aparecendo vermelhinho... igual ao bolder
+}// app java ta dando jumpscares, aparecendo vermelhinho... igual ao bolder
