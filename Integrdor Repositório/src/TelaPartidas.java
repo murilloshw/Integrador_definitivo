@@ -638,6 +638,9 @@ public class TelaPartidas extends JPanel {
                 }
 
                 con.commit();
+                Auditoria.registrar(insuficiente ? "PARTIDA_SEM_SALDO" : "PARTIDA",
+                        String.format("Cartão %03d | Máquina %d | -%d créditos | +%d pontos | saldo %d",
+                                idCartao, maquina.id, insuficiente ? 0 : valor, pontos, saldoApos));
                 return new Resultado(nomeCliente, insuficiente, valor, saldoApos, pontos);
             } catch (SQLException | PartidaException e) {
                 con.rollback();

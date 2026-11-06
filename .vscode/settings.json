@@ -1,4 +1,7 @@
 {
+    "java.project.sourcePaths": [
+        "Integrdor Repositório/src"
+    ],
     "java.project.referencedLibraries": [
         "lib/**/*.jar",
         "Integrdor Repositório/lib/**/*.jar"

@@ -524,7 +524,9 @@ public class TelaCartao extends JPanel {
 
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) {
-                    return keys.getLong(1);
+                    long id = keys.getLong(1);
+                    Auditoria.registrar("CADASTRO_CARTAO", String.format("Cartão %03d | cliente %03d | usuário %s", id, idCliente, usuario));
+                    return id;
                 }
             }
             throw new SQLException("O banco não retornou o ID do cartão cadastrado.");
@@ -548,6 +550,8 @@ public class TelaCartao extends JPanel {
             ps.setLong(6, idCartao);
             ps.executeUpdate();
         }
+        Auditoria.registrar("EDICAO_CARTAO", String.format("Cartão %03d | créditos %d | pontos %d | %s",
+                idCartao, credito, pontos, ativo ? "ativo" : "inativo"));
     }
 
     /** Exclui o cartão selecionado (só se não tiver recargas, partidas ou resgates ligados a ele). */
@@ -559,14 +563,16 @@ public class TelaCartao extends JPanel {
         if (!Exclusao.confirmar(this, "o cartão " + String.valueOf(modeloTabela.getValueAt(linha, 0)))) {
             return;
         }
+        long id = idDaLinha(linha);
         try (Connection con = conectar();
                 PreparedStatement ps = con.prepareStatement("DELETE FROM `cartões` WHERE `ID_Cartão` = ?")) {
-            ps.setLong(1, idDaLinha(linha));
+            ps.setLong(1, id);
             ps.executeUpdate();
         } catch (SQLException ex) {
             Exclusao.erro(this, ex);
             return;
         }
+        Auditoria.registrar("EXCLUSAO_CARTAO", String.format("Cartão %03d", id));
         carregarCartoes(true);
     }
 
