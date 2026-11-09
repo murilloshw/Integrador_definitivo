@@ -616,6 +616,8 @@ public class TelaBiblioteca extends JPanel {
             }
             ps.executeUpdate();
         }
+        Auditoria.registrar(id == null ? "CADASTRO_LIVRO" : "EDICAO_LIVRO",
+                "\"" + titulo + "\" de " + autor + " | " + qtd + " exemplar(es)");
     }
 
     /** Exclui um livro (só se não houver fichas ou doações ligadas a ele). */
@@ -623,14 +625,16 @@ public class TelaBiblioteca extends JPanel {
         if (!Exclusao.confirmar(this, "o livro " + linha[1])) {
             return;
         }
+        long id = idDe(linha[0]);
         try (Connection con = Conexao.conectar();
                 PreparedStatement ps = con.prepareStatement("DELETE FROM livros WHERE ID_Livro = ?")) {
-            ps.setLong(1, idDe(linha[0]));
+            ps.setLong(1, id);
             ps.executeUpdate();
         } catch (SQLException ex) {
             Exclusao.erro(this, ex);
             return;
         }
+        Auditoria.registrar("EXCLUSAO_LIVRO", "ID " + id + " | " + linha[1]);
         abaLivros.carregar();
     }
 
@@ -672,6 +676,9 @@ public class TelaBiblioteca extends JPanel {
                 }
             }
         });
+        Auditoria.registrar(id == null ? "CADASTRO_FICHA_LEITURA" : "EDICAO_FICHA_LEITURA",
+                String.format("Cliente %03d | livro %d | %d créditos | %s", idCliente, idLivro, creditos,
+                        aprovada ? "aprovada" : "pendente"));
     }
 
     /** Aprova uma ficha pendente: créditos entram no cartão e o aprovador vira o responsável. */
@@ -690,6 +697,7 @@ public class TelaBiblioteca extends JPanel {
                 ps.executeUpdate();
             }
         });
+        Auditoria.registrar("APROVACAO_FICHA_LEITURA", "Ficha " + id);
     }
 
     /**
@@ -731,6 +739,8 @@ public class TelaBiblioteca extends JPanel {
                 }
             }
         });
+        Auditoria.registrar(id == null ? "DOACAO_LIVRO" : "EDICAO_DOACAO_LIVRO",
+                String.format("Cliente %03d | livro %d | %d créditos", idCliente, idLivro, creditos));
     }
 
     /** Doação de sangue: comprovante apresentado pelo cliente gera créditos no cartão. */
@@ -760,6 +770,8 @@ public class TelaBiblioteca extends JPanel {
                 }
             }
         });
+        Auditoria.registrar(id == null ? "DOACAO_SANGUE" : "EDICAO_DOACAO_SANGUE",
+                String.format("Cliente %03d | %d créditos", idCliente, creditos));
     }
 
     /** Abre uma transação, roda o trabalho e confirma (commit); se algo falhar, desfaz tudo (rollback). */

@@ -342,7 +342,9 @@ public class TelaMaquinas extends JPanel {
 
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) {
-                    return keys.getLong(1);
+                    long id = keys.getLong(1);
+                    Auditoria.registrar("CADASTRO_MAQUINA", "ID " + id + " | " + nome);
+                    return id;
                 }
             }
             throw new SQLException("O banco não retornou o ID da máquina cadastrada.");
@@ -365,6 +367,7 @@ public class TelaMaquinas extends JPanel {
             ps.setLong(5, idMaquina);
             ps.executeUpdate();
         }
+        Auditoria.registrar("EDICAO_MAQUINA", "ID " + idMaquina + " | " + nome);
     }
 
     /** Traduz erros do banco para mensagens amigáveis. */
@@ -505,17 +508,20 @@ public class TelaMaquinas extends JPanel {
         if (linha < 0) {
             return;
         }
-        if (!Exclusao.confirmar(this, "a máquina " + String.valueOf(modeloTabela.getValueAt(linha, 1)).trim())) {
+        String nome = String.valueOf(modeloTabela.getValueAt(linha, 1)).trim();
+        if (!Exclusao.confirmar(this, "a máquina " + nome)) {
             return;
         }
+        long id = idDaLinha(linha);
         try (Connection con = conectar();
                 PreparedStatement ps = con.prepareStatement("DELETE FROM `máquinas` WHERE `ID_Máquina` = ?")) {
-            ps.setLong(1, idDaLinha(linha));
+            ps.setLong(1, id);
             ps.executeUpdate();
         } catch (SQLException ex) {
             Exclusao.erro(this, ex);
             return;
         }
+        Auditoria.registrar("EXCLUSAO_MAQUINA", "ID " + id + " | " + nome);
         carregarMaquinas();
     }
 

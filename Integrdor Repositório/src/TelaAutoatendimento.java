@@ -24,9 +24,6 @@ import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.SQLException;
 import java.text.NumberFormat;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -56,11 +53,13 @@ import javax.swing.Timer;
  * Fluxo (4 etapas):
  *   1. Cartão      -> cliente digita o número do cartão (teclado na tela ou teclado físico)
  *   2. Valor       -> escolhe R$ 10, 20, 30, 50 ou 100 (vê os créditos antes de pagar)
- *   3. Pagamento   -> escolhe Pix, débito ou crédito (lista vem do cadastro) e confirma
+ *   3. Pagamento   -> vê o resumo (cartão, créditos, valor) e escolhe Pix, crédito ou débito
+ *                     (dinheiro só no balcão; cada opção precisa estar ativa no cadastro)
  *   4. Confirmação -> mostra o novo saldo e volta sozinha ao início
  *
  * Regras de segurança e de uso:
- *   - Não há como sair pelo sistema: a barra lateral fica coberta e o ESC é ignorado.
+ *   - Não há como sair pelo sistema: a barra lateral fica coberta e o ESC abre a
+ *     mesma janela de login de administrador do botão de saída.
  *   - Para sair é preciso o usuário e a senha de um funcionário ADMINISTRADOR e ATIVO.
  *     Depois de 3 tentativas erradas, a saída fica bloqueada por 30 segundos.
  *   - Sem uso por 60 segundos, a tela volta ao início e limpa o que foi digitado
@@ -133,12 +132,22 @@ public class TelaAutoatendimento extends JPanel {
     private JLabel lblSaldo;
 
     // Etapa 3 - pagamento
-    private JLabel lblResumo;
-    private JPanel painelFormas;
+    // As três opções do autoatendimento (dinheiro só no balcão). Cada uma é ligada ao
+    // nome cadastrado em formas_pagamento; se não houver (ou estiver inativa), fica indisponível.
+    private static final String[] TIPOS_FORMA = { "pix", "credito", "debito" };
+    private static final String[] TITULOS_FORMA = { "Pix", "Cartão de crédito", "Cartão de débito" };
+    private static final String[] DICAS_FORMA = { "Aprovação na hora", "Na maquininha ao lado", "Na maquininha ao lado" };
+
+    private JLabel lblResumoCartao;
+    private JLabel lblResumoCreditos;
+    private JLabel lblResumoValor;
+    private JLabel lblResumoSaldo;
     private JLabel lblErroPagamento;
     private JButton btnConfirmar;
     private ButtonGroup grupoFormas = new ButtonGroup();
-    private List<String> formas = new ArrayList<>();
+    private final JToggleButton[] botoesForma = new JToggleButton[TIPOS_FORMA.length];
+    /** Nome da forma no banco para cada opção (null = indisponível). */
+    private final String[] nomeFormaNoBanco = new String[TIPOS_FORMA.length];
     private boolean formasCarregadas = false;
 
     // Etapa 4 - confirmação
@@ -469,38 +478,79 @@ public class TelaAutoatendimento extends JPanel {
 
     // =========================================================================
     // ETAPA 3: PAGAMENTO
-    // Lista de formas de pagamento (vinda do banco) e o botão que grava a recarga.
+    // Esquerda: resumo da recarga (cartão, créditos, valor, saldo depois).
+    // Direita: Pix / Cartão de crédito / Cartão de débito e, embaixo, Confirmar.
     // =========================================================================
     private JPanel criarEtapaPagamento() {
-        JPanel etapa = new JPanel(new BorderLayout(0, 26));
+        JPanel etapa = new JPanel(new GridLayout(1, 2, 36, 0));
         etapa.setOpaque(false);
 
-        lblResumo = rotulo(" ", Font.PLAIN, 20, Color.WHITE);
-        etapa.add(lblResumo, BorderLayout.NORTH);
+        // --- Esquerda: resumo ---
+        JPanel resumo = painelArredondado(new BorderLayout(0, 20), CARD);
+        resumo.setBorder(BorderFactory.createEmptyBorder(30, 34, 30, 34));
+        resumo.add(rotulo("Resumo da recarga", Font.BOLD, 26, Color.WHITE), BorderLayout.NORTH);
 
-        JPanel formasBox = painelArredondado(new BorderLayout(0, 20), CARD);
-        formasBox.setBorder(BorderFactory.createEmptyBorder(30, 30, 30, 30));
-        formasBox.add(rotulo("Como você vai pagar?", Font.BOLD, 22, Color.WHITE), BorderLayout.NORTH);
+        // Blocos empilhados de cima para baixo (cartão / créditos / valor / saldo)
+        JPanel linhas = new JPanel();
+        linhas.setLayout(new javax.swing.BoxLayout(linhas, javax.swing.BoxLayout.Y_AXIS));
+        linhas.setOpaque(false);
+        lblResumoCartao = rotulo(" ", Font.PLAIN, 20, TEXTO_SUAVE);
+        lblResumoCreditos = rotulo(" ", Font.BOLD, 96, AZUL_CLARO);
+        lblResumoValor = rotulo(" ", Font.BOLD, 28, Color.WHITE);
+        lblResumoSaldo = rotulo(" ", Font.PLAIN, 18, TEXTO_SUAVE);
+        java.awt.Component[] ordem = {
+                lblResumoCartao, javax.swing.Box.createVerticalStrut(34),
+                rotulo("Créditos que serão adicionados", Font.PLAIN, 17, TEXTO_SUAVE), lblResumoCreditos,
+                javax.swing.Box.createVerticalStrut(26),
+                lblResumoValor, javax.swing.Box.createVerticalStrut(10), lblResumoSaldo };
+        for (java.awt.Component comp : ordem) {
+            if (comp instanceof JComponent) {
+                ((JComponent) comp).setAlignmentX(LEFT_ALIGNMENT);
+            }
+            linhas.add(comp);
+        }
+        resumo.add(linhas, BorderLayout.CENTER);
 
-        painelFormas = new JPanel(new FlowLayout(FlowLayout.CENTER, 18, 18));
-        painelFormas.setOpaque(false);
-        formasBox.add(painelFormas, BorderLayout.CENTER);
-
-        lblErroPagamento = rotulo(" ", SwingConstants.CENTER, Font.BOLD, 16, ERRO);
-        formasBox.add(lblErroPagamento, BorderLayout.SOUTH);
-        etapa.add(formasBox, BorderLayout.CENTER);
-
-        JButton voltar = criarBotao("Voltar", false, 18, new Dimension(220, 76));
+        JButton voltar = criarBotao("Voltar", false, 18, new Dimension(220, 70));
         voltar.addActionListener(e -> mostrarEtapa(ETAPA_VALOR));
-        btnConfirmar = criarBotao("Confirmar recarga", true, 22, new Dimension(340, 76));
+        JPanel rodapeEsq = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        rodapeEsq.setOpaque(false);
+        rodapeEsq.add(voltar);
+        resumo.add(rodapeEsq, BorderLayout.SOUTH);
+
+        // --- Direita: as três formas + Confirmar ---
+        JPanel pagamento = painelArredondado(new BorderLayout(0, 18), CARD);
+        pagamento.setBorder(BorderFactory.createEmptyBorder(30, 30, 30, 30));
+
+        JPanel titulos = new JPanel(new GridLayout(2, 1, 0, 6));
+        titulos.setOpaque(false);
+        titulos.add(rotulo("Como você vai pagar?", Font.BOLD, 26, Color.WHITE));
+        titulos.add(rotulo("Toque em uma opção e depois em Confirmar.", Font.PLAIN, 16, TEXTO_SUAVE));
+        pagamento.add(titulos, BorderLayout.NORTH);
+
+        JPanel opcoes = new JPanel(new GridLayout(TIPOS_FORMA.length, 1, 0, 16));
+        opcoes.setOpaque(false);
+        for (int i = 0; i < TIPOS_FORMA.length; i++) {
+            final int indice = i;
+            botoesForma[i] = criarOpcaoForma(TIPOS_FORMA[i], TITULOS_FORMA[i], DICAS_FORMA[i]);
+            botoesForma[i].addActionListener(e -> selecionarForma(indice));
+            grupoFormas.add(botoesForma[i]);
+            opcoes.add(botoesForma[i]);
+        }
+        pagamento.add(opcoes, BorderLayout.CENTER);
+
+        JPanel rodapeDir = new JPanel(new BorderLayout(0, 12));
+        rodapeDir.setOpaque(false);
+        lblErroPagamento = rotulo(" ", SwingConstants.CENTER, Font.BOLD, 16, ERRO);
+        btnConfirmar = criarBotao("Confirmar", true, 24, new Dimension(0, 84));
         btnConfirmar.setEnabled(false);
         btnConfirmar.addActionListener(e -> confirmarRecarga());
+        rodapeDir.add(lblErroPagamento, BorderLayout.NORTH);
+        rodapeDir.add(btnConfirmar, BorderLayout.CENTER);
+        pagamento.add(rodapeDir, BorderLayout.SOUTH);
 
-        JPanel rodape = new JPanel(new BorderLayout());
-        rodape.setOpaque(false);
-        rodape.add(voltar, BorderLayout.WEST);
-        rodape.add(btnConfirmar, BorderLayout.EAST);
-        etapa.add(rodape, BorderLayout.SOUTH);
+        etapa.add(resumo);
+        etapa.add(pagamento);
         return etapa;
     }
 
@@ -510,53 +560,70 @@ public class TelaAutoatendimento extends JPanel {
         btnConfirmar.setEnabled(false);
         lblErroPagamento.setText(" ");
         int creditos = valorReais * TelaRecargas.CREDITOS_POR_REAL;
-        lblResumo.setText("Cartão " + String.format("%03d", cartao.id) + " — recarga de "
-                + MOEDA.format(valorReais) + " = " + creditos + " créditos");
+        lblResumoCartao.setText("Cartão " + String.format("%03d", cartao.id) + "  ·  " + cartao.nome);
+        lblResumoCreditos.setText("+" + creditos);
+        lblResumoValor.setText("Valor a pagar: " + MOEDA.format(valorReais));
+        lblResumoSaldo.setText("Saldo depois da recarga: " + (cartao.creditos + creditos) + " créditos");
+        atualizarDisponibilidadeFormas();
     }
 
-    /** Carrega as formas de pagamento do banco (em segundo plano) e monta os botões. */
+    /** Carrega do banco (em segundo plano) quais das três formas estão ativas. */
     private void carregarFormas() {
         emBackground(() -> recargas.formasAtivasAutoatendimento(),
                 lista -> {
-                    formas = lista;
+                    java.util.Arrays.fill(nomeFormaNoBanco, null);
+                    for (String nome : lista) {
+                        String tipo = TelaRecargas.tipoFormaAutoatendimento(nome);
+                        for (int i = 0; i < TIPOS_FORMA.length; i++) {
+                            if (TIPOS_FORMA[i].equals(tipo) && nomeFormaNoBanco[i] == null) {
+                                nomeFormaNoBanco[i] = nome;
+                            }
+                        }
+                    }
                     formasCarregadas = true;
-                    preencherFormas();
+                    atualizarDisponibilidadeFormas();
                 },
                 ex -> {
-                    formas = new ArrayList<>();
+                    java.util.Arrays.fill(nomeFormaNoBanco, null);
                     formasCarregadas = true;
-                    preencherFormas();
+                    atualizarDisponibilidadeFormas();
                     registrarFalha("carregar formas de pagamento", ex);
                 });
     }
 
-    /** Recria os botões de forma de pagamento (ou um aviso, se ainda não há nenhuma). */
-    private void preencherFormas() {
-        painelFormas.removeAll();
-        grupoFormas = new ButtonGroup();
-        formaEscolhida = null;
-
-        if (!formasCarregadas) {
-            painelFormas.add(rotulo("Carregando formas de pagamento...", Font.PLAIN, 18, TEXTO_SUAVE));
-        } else if (formas.isEmpty()) {
-            painelFormas.add(rotulo("Nenhuma forma de pagamento disponível. Procure a recepção.",
-                    Font.PLAIN, 18, TEXTO_SUAVE));
-        } else {
-            for (String forma : formas) {
-                JToggleButton b = criarOpcaoForma(forma);
-                b.addActionListener(e -> selecionarForma(forma));
-                grupoFormas.add(b);
-                painelFormas.add(b);
-            }
+    /** Liga só as opções que existem e estão ativas no cadastro; as outras ficam "Indisponível". */
+    private void atualizarDisponibilidadeFormas() {
+        boolean alguma = false;
+        for (int i = 0; i < TIPOS_FORMA.length; i++) {
+            boolean disponivel = nomeFormaNoBanco[i] != null;
+            alguma |= disponivel;
+            botoesForma[i].setEnabled(disponivel && !ocupado);
+            botoesForma[i].setText(textoOpcao(TITULOS_FORMA[i],
+                    !formasCarregadas ? "Carregando..." : disponivel ? DICAS_FORMA[i] : "Indisponível no momento"));
         }
-        painelFormas.revalidate();
-        painelFormas.repaint();
+        if (formasCarregadas && !alguma) {
+            lblErroPagamento.setText("Pagamento indisponível no momento. Procure a recepção.");
+        }
+        if (formaEscolhida != null && !botoesForma[indiceDaForma(formaEscolhida)].isEnabled()) {
+            formaEscolhida = null;
+            grupoFormas.clearSelection();
+            btnConfirmar.setEnabled(false);
+        }
     }
 
-    private void selecionarForma(String forma) {
-        formaEscolhida = forma;
+    private int indiceDaForma(String nomeNoBanco) {
+        for (int i = 0; i < nomeFormaNoBanco.length; i++) {
+            if (nomeNoBanco.equals(nomeFormaNoBanco[i])) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private void selecionarForma(int indice) {
+        formaEscolhida = nomeFormaNoBanco[indice]; // gravado na recarga com o nome do cadastro
         lblErroPagamento.setText(" ");
-        btnConfirmar.setEnabled(true);
+        btnConfirmar.setEnabled(formaEscolhida != null);
     }
 
     /** Grava a recarga (em segundo plano). Só mostra sucesso depois que o banco confirmou. */
@@ -608,9 +675,9 @@ public class TelaAutoatendimento extends JPanel {
     /** Desliga (ou religa) o botão Confirmar e as opções de pagamento durante a gravação. */
     private void bloquearPagamento(boolean bloquear) {
         btnConfirmar.setEnabled(!bloquear && formaEscolhida != null);
-        btnConfirmar.setText(bloquear ? "Registrando..." : "Confirmar recarga");
-        for (Enumeration<AbstractButton> e = grupoFormas.getElements(); e.hasMoreElements();) {
-            e.nextElement().setEnabled(!bloquear);
+        btnConfirmar.setText(bloquear ? "Registrando..." : "Confirmar");
+        for (int i = 0; i < botoesForma.length; i++) {
+            botoesForma[i].setEnabled(!bloquear && nomeFormaNoBanco[i] != null);
         }
     }
 
@@ -632,7 +699,7 @@ public class TelaAutoatendimento extends JPanel {
         botaoBox.setOpaque(false);
         botaoBox.add(novaRecarga);
 
-        etapa.add(rotulo("Recarga confirmada!", SwingConstants.CENTER, Font.BOLD, 44, SUCESSO));
+        etapa.add(rotulo("Recarga bem-sucedida!", SwingConstants.CENTER, Font.BOLD, 44, SUCESSO));
         etapa.add(lblConfirmacaoDetalhe);
         etapa.add(lblContagem);
         etapa.add(botaoBox);
@@ -642,6 +709,7 @@ public class TelaAutoatendimento extends JPanel {
     private void mostrarConfirmacao(String nomeCliente, long idCartao, long creditos, long saldo) {
         String saldoTexto = saldo >= 0 ? saldo + " créditos" : "consulte a recepção";
         lblConfirmacaoDetalhe.setText("<html><div style='text-align:center'>"
+                + "Recarga finalizada" + (formaEscolhida != null ? " no " + formaEscolhida : "") + ".<br>"
                 + "+" + creditos + " créditos adicionados ao cartão " + String.format("%03d", idCartao) + "."
                 + "<br>Saldo atual: " + saldoTexto + "</div></html>");
         segundosRestantes = SEGUNDOS_ATE_INICIO;
@@ -751,7 +819,8 @@ public class TelaAutoatendimento extends JPanel {
     // Janela modal que pede usuário e senha. 3 tentativas erradas bloqueiam a
     // saída por 30 segundos.
     // =========================================================================
-    private void abrirSaidaFuncionario() {
+    /** Também chamado pelo ESC (ver SairComEsc / App.abrirAutoatendimento). */
+    void abrirSaidaFuncionario() {
         if (saidaAberta) {
             return;
         }
@@ -990,18 +1059,78 @@ public class TelaAutoatendimento extends JPanel {
         return b;
     }
 
-    /** Opção de forma de pagamento: fica azul quando escolhida. */
-    private JToggleButton criarOpcaoForma(String texto) {
-        JToggleButton b = new JToggleButton(texto) {
+    /**
+     * Opção de forma de pagamento (Pix / crédito / débito): ícone à esquerda, nome e dica.
+     * Fica azul com um "✓" quando escolhida.
+     */
+    private JToggleButton criarOpcaoForma(String tipo, String titulo, String dica) {
+        JToggleButton b = new JToggleButton(textoOpcao(titulo, dica), new IconeForma(tipo)) {
             @Override
             protected void paintComponent(Graphics g) {
                 Color cor = !isEnabled() ? DESABILITADO : isSelected() ? AZUL : BOTAO_SECUNDARIO;
                 pintarFundo(g, this, cor);
                 super.paintComponent(g);
+                if (isSelected() && isEnabled()) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    int d = 34, x = getWidth() - d - 24, y = (getHeight() - d) / 2;
+                    g2.setColor(Color.WHITE);
+                    g2.fillOval(x, y, d, d);
+                    g2.setColor(AZUL);
+                    g2.setStroke(new java.awt.BasicStroke(4f, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
+                    g2.drawPolyline(new int[] { x + 9, x + 15, x + 26 }, new int[] { y + 18, y + 24, y + 11 }, 3);
+                    g2.dispose();
+                }
             }
         };
-        estilizarBotao(b, 20, new Dimension(260, 96));
+        estilizarBotao(b, 20, new Dimension(0, 104));
+        b.setHorizontalAlignment(SwingConstants.LEFT);
+        b.setIconTextGap(22);
+        b.setBorder(BorderFactory.createEmptyBorder(0, 26, 0, 70));
         return b;
+    }
+
+    private static String textoOpcao(String titulo, String dica) {
+        return "<html><span style='font-size:21px'><b>" + titulo + "</b></span><br>"
+                + "<span style='font-size:13px; font-weight:normal'>" + dica + "</span></html>";
+    }
+
+    /** Ícones em line art (mesmo estilo dos botões do sistema) para as formas de pagamento. */
+    private static final class IconeForma implements javax.swing.Icon {
+        private static final int TAM = 48;
+        private final String tipo;
+
+        IconeForma(String tipo) {
+            this.tipo = tipo;
+        }
+
+        @Override public int getIconWidth() { return TAM; }
+        @Override public int getIconHeight() { return TAM; }
+
+        @Override
+        public void paintIcon(java.awt.Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(c.isEnabled() ? Color.WHITE : TEXTO_SUAVE);
+            g2.setStroke(new java.awt.BasicStroke(3f, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
+            g2.translate(x, y);
+            if ("pix".equals(tipo)) {
+                // losango com outro losango dentro
+                g2.drawPolygon(new int[] { 24, 44, 24, 4 }, new int[] { 4, 24, 44, 24 }, 4);
+                g2.drawPolygon(new int[] { 24, 33, 24, 15 }, new int[] { 15, 24, 33, 24 }, 4);
+            } else {
+                // cartão: retângulo arredondado
+                g2.drawRoundRect(3, 10, 42, 28, 7, 7);
+                if ("credito".equals(tipo)) {
+                    g2.drawLine(3, 18, 45, 18);           // tarja
+                    g2.drawLine(10, 30, 22, 30);          // número
+                } else {
+                    g2.drawRoundRect(9, 17, 10, 8, 3, 3); // chip
+                    g2.drawLine(9, 31, 27, 31);           // número
+                }
+            }
+            g2.dispose();
+        }
     }
 
     /** Pinta o fundo arredondado de um botão na cor indicada. */

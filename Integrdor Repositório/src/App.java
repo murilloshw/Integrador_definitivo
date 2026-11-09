@@ -46,6 +46,7 @@ public class App extends JFrame {
     private TelaPremios telaPremios;
     private TelaPartidas telaPartidas;
     private TelaBiblioteca telaBiblioteca;
+    private TelaLog telaLog;
     private TelaAutoatendimento telaAutoatendimento;
 
     /** Todas as telas que ocupam a área à direita da barra lateral. */
@@ -72,7 +73,7 @@ public class App extends JFrame {
 
         setIconImage(carregarIconeJanela());
 
-        // ESC encerra o sistema em qualquer tela (ver SairComEsc)
+        // ESC pergunta se quer sair; no autoatendimento pede login de administrador (ver SairComEsc)
         SairComEsc.instalar();
 
         JLayeredPane layeredPane = new JLayeredPane();
@@ -115,9 +116,10 @@ public class App extends JFrame {
         telaPremios = new TelaPremios();
         telaPartidas = new TelaPartidas();
         telaBiblioteca = new TelaBiblioteca();
+        telaLog = new TelaLog();
 
         telas = new JPanel[] { telaDashboard, telaClientes, telaCartao, telaMaquinas, telaFuncionarios,
-                telaRecargas, telaPremios, telaPartidas, telaBiblioteca };
+                telaRecargas, telaPremios, telaPartidas, telaBiblioteca, telaLog };
 
         for (JPanel tela : telas) {
             tela.setVisible(tela == telaDashboard);
@@ -181,6 +183,7 @@ public class App extends JFrame {
                 { "Prêmios", "botao premio.png" },
                 { "Funcionários", "botao funcionario.png" },
                 { "Biblioteca", "botao biblioteca.png" },
+                { "Log", "botao log.png" },
                 { "Sair", "botao saida.png" }
         };
 
@@ -189,7 +192,7 @@ public class App extends JFrame {
             String texto = btn[0];
             String imagem = btn[1];
 
-            if (texto.equals("Funcionários") && !Sessao.isManagerMaster()) {
+            if ((texto.equals("Funcionários") || texto.equals("Log")) && !Sessao.isManagerMaster()) {
                 continue;
             }
             if (texto.equals("Biblioteca") && !Sessao.isBibliotecario()) {
@@ -253,6 +256,15 @@ public class App extends JFrame {
                 telaBiblioteca.recarregar();
                 mostrarTela(telaBiblioteca);
                 break;
+            case "Log":
+                if (!Sessao.isManagerMaster()) {
+                    JOptionPane.showMessageDialog(this, "Apenas administradores podem ver o log do sistema.",
+                            "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                telaLog.recarregar();
+                mostrarTela(telaLog);
+                break;
             case "Sair":
                 sair();
                 break;
@@ -286,13 +298,17 @@ public class App extends JFrame {
             telaCartao.atualizarSilenciosamente();
         } else if (telaRecargas.isVisible()) {
             telaRecargas.atualizarSilenciosamente();
+        } else if (telaLog.isVisible()) {
+            telaLog.atualizarSilenciosamente();
         }
     }
 
     /** Sair do sistema: encerra a sessão e volta para a tela de login. */
     private void sair() {
         timerAtualizacao.stop();
+        Auditoria.registrar("LOGOUT", null); // antes de encerrar, para saber quem saiu
         Sessao.encerrar();
+        SairComEsc.desviarPara(null); // ESC volta a perguntar "Deseja sair?"
         GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().setFullScreenWindow(null);
         dispose();
         new TelaLogin();
@@ -307,6 +323,8 @@ public class App extends JFrame {
         telaAutoatendimento.setBounds(0, 0, getWidth(), getHeight());
         telaAutoatendimento.iniciar();
         telaAutoatendimento.setVisible(true);
+        SairComEsc.desviarPara(telaAutoatendimento::abrirSaidaFuncionario); // ESC pede login de administrador
+        Auditoria.registrar("AUTOATENDIMENTO_ABERTO", null);
         getContentPane().repaint();
     }
 
@@ -314,6 +332,8 @@ public class App extends JFrame {
     private void fecharAutoatendimento() {
         telaAutoatendimento.encerrar();
         telaAutoatendimento.setVisible(false);
+        SairComEsc.desviarPara(null); // ESC volta a perguntar "Deseja sair?"
+        Auditoria.registrar("AUTOATENDIMENTO_FECHADO", null);
         atualizarTelaVisivel();
         getContentPane().repaint();
     }

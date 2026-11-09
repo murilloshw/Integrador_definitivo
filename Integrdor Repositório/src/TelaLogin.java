@@ -186,18 +186,22 @@ public class TelaLogin extends JFrame {
         if (resultado.tipo == Resultado.SUCESSO) {
             Funcionario funcionario = resultado.funcionario;
             Sessao.iniciar(funcionario); // a permissão de admin vem do campo Permissão_ADM
+            Auditoria.registrar("LOGIN", null);
             iniciarCarregamento(funcionario);
             return;
         }
 
         switch (resultado.tipo) {
             case CREDENCIAIS_INVALIDAS:
+                // Sem sessão: registra só o usuário digitado (nunca a senha)
+                Auditoria.registrar(null, usuario, "LOGIN_FALHOU", "Usuário ou senha incorretos");
                 JOptionPane.showMessageDialog(this, "Usuário ou senha incorretos.", "Erro", JOptionPane.ERROR_MESSAGE);
                 senha.setText("");
                 senha.requestFocus();
                 break;
 
             case BLOQUEADO:
+                Auditoria.registrar(null, usuario, "LOGIN_BLOQUEADO", "Tentativa de funcionário inativo");
                 JOptionPane.showMessageDialog(this,
                         "Este funcionário está bloqueado.\nProcure o Manager Master.",
                         "Acesso bloqueado", JOptionPane.WARNING_MESSAGE);

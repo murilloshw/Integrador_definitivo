@@ -123,8 +123,11 @@ public class PainelExtensor extends JPanel {
             }
 
             setSize(larguraAtual, getHeight());
+            // Redesenha SÓ a faixa do botão (até a largura máxima dele), e não a janela
+            // inteira: repintar tudo a cada 10ms redesenhava as tabelas ~100x por segundo
+            // e fazia o mouse "engasgar" ao passar da barra lateral para a tela.
             if (getParent() != null) {
-                getParent().repaint();
+                getParent().repaint(getX(), getY(), larguraAberto, getHeight());
             }
         });
 

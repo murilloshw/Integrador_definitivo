@@ -613,8 +613,11 @@ public class TelaPremios extends JPanel {
             ps.setBoolean(4, ativo);
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
-                if (keys.next())
-                    return keys.getLong(1);
+                if (keys.next()) {
+                    long id = keys.getLong(1);
+                    Auditoria.registrar("CADASTRO_PREMIO", "ID " + id + " | " + nome + " | " + valor + " pontos | estoque " + qtd);
+                    return id;
+                }
             }
             throw new SQLException("ID não retornado.");
         }
@@ -631,6 +634,7 @@ public class TelaPremios extends JPanel {
             ps.setLong(5, id);
             ps.executeUpdate();
         }
+        Auditoria.registrar("EDICAO_PREMIO", "ID " + id + " | " + nome + " | " + valor + " pontos | estoque " + qtd);
     }
 
     // =========================================================================
@@ -986,6 +990,11 @@ public class TelaPremios extends JPanel {
                 }
 
                 con.commit();
+                StringBuilder resumo = new StringBuilder(String.format("Cartão %03d | -%d pontos |", idCartao, totalGeral));
+                for (long[] item : itens) {
+                    resumo.append(" prêmio ").append(item[0]).append(" x").append(item[1]).append(';');
+                }
+                Auditoria.registrar("RESGATE", resumo.toString());
                 return saldo - totalGeral;
             } catch (SQLException | CompraException e) {
                 con.rollback();

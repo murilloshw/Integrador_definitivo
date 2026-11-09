@@ -87,25 +87,56 @@ public class TelaFuncionarios extends JPanel {
     private boolean carregando = false;
     private int cargaId = 0;        // descarta respostas de cargas antigas
 
+    // --- Abas (Funcionários | Cargos) ---
+    private static final String CARD_FUNCIONARIOS = "funcionarios";
+    private static final String CARD_CARGOS = "cargos";
+    private final CardLayout cards = new CardLayout();
+    private JPanel painelCards;
+    private JButton abaFuncionarios;
+    private JButton abaCargos;
+    private boolean abaCargosAtiva = false;
+
+    // --- Aba Cargos ---
+    private JTable tabelaCargos;
+    private DefaultTableModel modeloCargos;
+    private TableRowSorter<DefaultTableModel> sorterCargos;
+    private boolean carregandoCargos = false;
+    private int cargaCargosId = 0;
+    /** Cargos ativos (lista de escolha do cadastro de funcionário). Atualizada a cada carga. */
+    private List<String> cargosAtivos = new ArrayList<>();
+
     // =========================================================================
     // CONSTRUTOR
-    // Monta o topo (título, busca, botões), a tabela e o rodapé, e carrega os dados.
+    // Monta o topo (título + abas), o conteúdo de cada aba e o rodapé, e carrega os dados.
     // =========================================================================
     public TelaFuncionarios() {
         setBackground(FUNDO);
         setLayout(new BorderLayout(15, 12));
         setBorder(BorderFactory.createEmptyBorder(20, 25, 15, 25));
 
-        add(criarTopo(), BorderLayout.NORTH);
-        add(criarAreaTabela(), BorderLayout.CENTER);
+        add(criarCabecalho(), BorderLayout.NORTH);
+
+        painelCards = new JPanel(cards);
+        painelCards.setOpaque(false);
+        JPanel painelFuncionarios = new JPanel(new BorderLayout(0, 15));
+        painelFuncionarios.setOpaque(false);
+        painelFuncionarios.add(criarTopo(), BorderLayout.NORTH);
+        painelFuncionarios.add(criarAreaTabela(), BorderLayout.CENTER);
+        painelCards.add(painelFuncionarios, CARD_FUNCIONARIOS);
+        painelCards.add(criarPainelCargos(), CARD_CARGOS);
+        add(painelCards, BorderLayout.CENTER);
+
         add(criarRodape(), BorderLayout.SOUTH);
 
+        mostrarAba(false);
         carregarTabela();
+        carregarCargos();
     }
 
     /** Chamado pelo App sempre que a tela é aberta. */
     public void recarregar() {
         carregarTabela();
+        carregarCargos();
     }
 
     // =========================================================================
@@ -113,15 +144,56 @@ public class TelaFuncionarios extends JPanel {
     // Cria cada pedaço visual da tela.
     // =========================================================================
 
-    /** Título + campo de busca + botões Editar / Excluir / Novo. */
-    private JPanel criarTopo() {
-        JPanel topo = new JPanel(new BorderLayout(0, 15));
+    /** Título "Funcionários" + abas "Funcionários | Cargos" (mesmo estilo da tela de Recargas). */
+    private JPanel criarCabecalho() {
+        JPanel topo = new JPanel(new BorderLayout(0, 10));
         topo.setOpaque(false);
 
         JLabel lblTitulo = new JLabel("Funcionários");
         lblTitulo.setFont(new Font("Segoe UI", Font.BOLD, 22));
         lblTitulo.setForeground(Color.WHITE);
 
+        JPanel abas = new JPanel(new FlowLayout(FlowLayout.LEFT, 18, 0));
+        abas.setOpaque(false);
+        abaFuncionarios = criarAba("Funcionários");
+        abaCargos = criarAba("Cargos");
+        abaFuncionarios.addActionListener(e -> mostrarAba(false));
+        abaCargos.addActionListener(e -> mostrarAba(true));
+        abas.add(abaFuncionarios);
+        abas.add(abaCargos);
+
+        topo.add(lblTitulo, BorderLayout.NORTH);
+        topo.add(abas, BorderLayout.CENTER);
+        return topo;
+    }
+
+    private JButton criarAba(String texto) {
+        JButton b = new JButton(texto);
+        b.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        b.setContentAreaFilled(false);
+        b.setFocusPainted(false);
+        b.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return b;
+    }
+
+    /** Aba ativa fica branca e sublinhada de azul; a inativa fica cinza. */
+    private void estilizarAba(JButton b, boolean ativa) {
+        b.setForeground(ativa ? Color.WHITE : TEXTO_SUAVE);
+        b.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 3, 0, ativa ? AZUL : new Color(0, 0, 0, 0)),
+                BorderFactory.createEmptyBorder(6, 4, 6, 4)));
+    }
+
+    private void mostrarAba(boolean cargos) {
+        abaCargosAtiva = cargos;
+        cards.show(painelCards, cargos ? CARD_CARGOS : CARD_FUNCIONARIOS);
+        estilizarAba(abaFuncionarios, !cargos);
+        estilizarAba(abaCargos, cargos);
+        atualizarTotal();
+    }
+
+    /** Campo de busca + botões Editar / Excluir / Novo da aba Funcionários. */
+    private JPanel criarTopo() {
         JButton btnNovo = criarBotao("+ Novo Funcionário", true, 170);
         btnNovo.addActionListener(e -> abrirModal(null));
 
@@ -144,10 +216,7 @@ public class TelaFuncionarios extends JPanel {
         painelAcoes.setOpaque(false);
         painelAcoes.add(criarBusca(PLACEHOLDER_BUSCA, this::filtrar), BorderLayout.WEST);
         painelAcoes.add(painelBotoes, BorderLayout.EAST);
-
-        topo.add(lblTitulo, BorderLayout.NORTH);
-        topo.add(painelAcoes, BorderLayout.CENTER);
-        return topo;
+        return painelAcoes;
     }
 
     /** Tabela de funcionários dentro de um card arredondado (com o ghost de carregamento). */
@@ -306,6 +375,13 @@ public class TelaFuncionarios extends JPanel {
     }
 
     private void atualizarTotal() {
+        if (lblTotal == null) {
+            return; // rodapé ainda não foi montado
+        }
+        if (abaCargosAtiva) {
+            lblTotal.setText(carregandoCargos ? "Carregando..." : "Total: " + tabelaCargos.getRowCount() + " cargos");
+            return;
+        }
         if (carregando) {
             lblTotal.setText("Carregando...");
             return;
@@ -384,7 +460,226 @@ public class TelaFuncionarios extends JPanel {
             Exclusao.erro(this, ex);
             return;
         }
+        Auditoria.registrar("EXCLUSAO_FUNCIONARIO", "ID " + id + " | " + f.getNome() + " | login " + f.getUsuario());
         recarregar();
+    }
+
+    // =========================================================================
+    // ABA CARGOS
+    // O administrador cadastra os cargos aqui; no cadastro de funcionário eles
+    // aparecem numa lista de escolha (como as formas de pagamento na recarga).
+    // O SQL fica em RepositorioCargos.
+    // =========================================================================
+
+    /** Busca + botões Editar / Excluir / Novo Cargo + tabela de cargos. */
+    private JPanel criarPainelCargos() {
+        JPanel painel = new JPanel(new BorderLayout(0, 15));
+        painel.setOpaque(false);
+
+        JButton btnNovo = criarBotao("+ Novo Cargo", true, 150);
+        btnNovo.addActionListener(e -> abrirModalCargo(-1, "", true));
+        JButton btnEditar = criarBotao("Editar", false, 100);
+        btnEditar.addActionListener(e -> editarCargoSelecionado());
+        JButton btnExcluir = Exclusao.criarBotao();
+        btnExcluir.addActionListener(e -> excluirCargoSelecionado());
+
+        JPanel botoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        botoes.setOpaque(false);
+        botoes.add(btnEditar);
+        botoes.add(btnExcluir);
+        botoes.add(btnNovo);
+
+        JPanel acoes = new JPanel(new BorderLayout(15, 0));
+        acoes.setOpaque(false);
+        acoes.add(criarBusca("Buscar cargo...", texto -> {
+            if (texto == null || texto.trim().isEmpty()) sorterCargos.setRowFilter(null);
+            else sorterCargos.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(texto.trim()), 1));
+            atualizarTotal();
+        }), BorderLayout.WEST);
+        acoes.add(botoes, BorderLayout.EAST);
+
+        modeloCargos = new DefaultTableModel(new String[] { "ID", "Cargo", "Funcionários", "Status" }, 0) {
+            @Override
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        tabelaCargos = new JTable(modeloCargos);
+        sorterCargos = new TableRowSorter<>(modeloCargos);
+        tabelaCargos.setRowSorter(sorterCargos);
+        tabelaCargos.getTableHeader().setReorderingAllowed(false);
+        tabelaCargos.setSelectionBackground(new Color(23, 55, 94));
+        tabelaCargos.setSelectionForeground(Color.WHITE);
+        tabelaCargos.setBackground(CARD);
+        tabelaCargos.setForeground(Color.WHITE);
+        tabelaCargos.setGridColor(new Color(18, 35, 60));
+        tabelaCargos.setRowHeight(42);
+        tabelaCargos.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        tabelaCargos.getTableHeader().setBackground(CARD);
+        tabelaCargos.getTableHeader().setForeground(TEXTO_SUAVE);
+        tabelaCargos.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
+        tabelaCargos.getTableHeader().setPreferredSize(new Dimension(0, 40));
+
+        Color azulClaro = new Color(186, 230, 253);
+        tabelaCargos.getColumnModel().getColumn(0).setCellRenderer(criarRenderer(SwingConstants.CENTER, azulClaro));
+        tabelaCargos.getColumnModel().getColumn(1).setCellRenderer(criarRenderer(SwingConstants.LEFT, Color.WHITE));
+        tabelaCargos.getColumnModel().getColumn(2).setCellRenderer(criarRenderer(SwingConstants.CENTER, azulClaro));
+        tabelaCargos.getColumnModel().getColumn(3).setCellRenderer(criarRendererStatus());
+
+        JPanel card = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(CARD);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                g2.setColor(BORDA);
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
+                g2.dispose();
+            }
+        };
+        card.setOpaque(false);
+        card.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        JScrollPane scroll = new JScrollPane(tabelaCargos);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(null);
+        card.add(scroll, BorderLayout.CENTER);
+
+        painel.add(acoes, BorderLayout.NORTH);
+        painel.add(card, BorderLayout.CENTER);
+        return painel;
+    }
+
+    /** Busca os cargos em segundo plano: preenche a aba Cargos e a lista de escolha do cadastro. */
+    private void carregarCargos() {
+        final int idCarga = ++cargaCargosId;
+        carregandoCargos = true;
+        atualizarTotal();
+        async(RepositorioCargos::listarTodos, lista -> {
+            if (idCarga != cargaCargosId) return;
+            modeloCargos.setRowCount(0);
+            List<String> ativos = new ArrayList<>();
+            for (RepositorioCargos.Cargo c : lista) {
+                modeloCargos.addRow(new Object[] { String.format("%03d", c.id), c.nome, c.funcionarios,
+                        c.ativo ? "Ativo" : "Inativo" });
+                if (c.ativo) ativos.add(c.nome);
+            }
+            cargosAtivos = ativos;
+            carregandoCargos = false;
+            atualizarTotal();
+        }, ex -> {
+            if (idCarga != cargaCargosId) return;
+            carregandoCargos = false;
+            atualizarTotal();
+            System.err.println("Erro ao carregar cargos: " + ex.getMessage());
+        });
+    }
+
+    /** Linha selecionada na tabela de cargos (índice no modelo), ou -1 depois de avisar. */
+    private int cargoSelecionado() {
+        int viewRow = tabelaCargos.getSelectedRow();
+        if (viewRow < 0) {
+            JOptionPane.showMessageDialog(this, "Selecione um cargo.", "Aviso", JOptionPane.WARNING_MESSAGE);
+            return -1;
+        }
+        return tabelaCargos.convertRowIndexToModel(viewRow);
+    }
+
+    private void editarCargoSelecionado() {
+        int m = cargoSelecionado();
+        if (m < 0) return;
+        abrirModalCargo(Long.parseLong(String.valueOf(modeloCargos.getValueAt(m, 0))),
+                String.valueOf(modeloCargos.getValueAt(m, 1)),
+                "Ativo".equals(modeloCargos.getValueAt(m, 3)));
+    }
+
+    private void excluirCargoSelecionado() {
+        int m = cargoSelecionado();
+        if (m < 0) return;
+        long id = Long.parseLong(String.valueOf(modeloCargos.getValueAt(m, 0)));
+        String nome = String.valueOf(modeloCargos.getValueAt(m, 1));
+        if (!Exclusao.confirmar(this, "o cargo " + nome)) return;
+
+        async(() -> RepositorioCargos.excluir(id), nomeExcluido -> {
+            Auditoria.registrar("EXCLUSAO_CARGO", "ID " + id + " | " + nomeExcluido);
+            carregarCargos();
+        }, ex -> {
+            if (ex instanceof RepositorioCargos.CargoException) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), "Exclusão não permitida", JOptionPane.WARNING_MESSAGE);
+            } else {
+                Exclusao.erro(this, ex);
+            }
+        });
+    }
+
+    /** Janela de cadastro/edição de cargo. id = -1 cadastra um novo. */
+    private void abrirModalCargo(long id, String nomeAtual, boolean ativoAtual) {
+        if (!Sessao.isManagerMaster()) {
+            JOptionPane.showMessageDialog(this, "Apenas administradores podem gerenciar cargos.", "Acesso negado", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        boolean edicao = id >= 0;
+        JDialog modal = new JDialog(SwingUtilities.getWindowAncestor(this),
+                edicao ? "Editar Cargo" : "Novo Cargo", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
+        modal.setSize(460, edicao ? 260 : 220);
+        modal.setLocationRelativeTo(this);
+        modal.setLayout(new BorderLayout());
+
+        JPanel form = new JPanel(new GridLayout(edicao ? 3 : 2, 1, 6, 6));
+        form.setBackground(CARD);
+        form.setBorder(BorderFactory.createEmptyBorder(20, 25, 10, 25));
+
+        JTextField txtNome = criarCampoTexto();
+        txtNome.setText(nomeAtual);
+        JComboBox<String> cmbStatus = new JComboBox<>(new String[] { "Ativo", "Inativo" });
+        cmbStatus.setBackground(FUNDO); cmbStatus.setForeground(Color.WHITE);
+        cmbStatus.setSelectedItem(ativoAtual ? "Ativo" : "Inativo");
+
+        JPanel linhaNome = new JPanel(new BorderLayout(10, 0));
+        linhaNome.setOpaque(false);
+        linhaNome.add(criarLabel("Nome do cargo:"), BorderLayout.WEST);
+        linhaNome.add(txtNome, BorderLayout.CENTER);
+        JPanel linhaStatus = new JPanel(new BorderLayout(10, 0));
+        linhaStatus.setOpaque(false);
+        linhaStatus.add(criarLabel("Status:"), BorderLayout.WEST);
+        linhaStatus.add(cmbStatus, BorderLayout.CENTER);
+        form.add(linhaNome);
+        form.add(linhaStatus);
+        if (edicao) {
+            JLabel aviso = new JLabel("<html>Renomear atualiza todos os funcionários com este cargo. "
+                    + "Inativo = some da lista de novos cadastros.</html>");
+            aviso.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            aviso.setForeground(TEXTO_SUAVE);
+            form.add(aviso);
+        }
+
+        JPanel painelBotoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        painelBotoes.setBackground(FUNDO);
+        JButton btnCancelar = criarBotao("Cancelar", false, 110);
+        btnCancelar.addActionListener(e -> modal.dispose());
+        JButton btnSalvar = criarBotao("Salvar", true, 110);
+        btnSalvar.addActionListener(e -> {
+            String nome = txtNome.getText().trim();
+            boolean ativo = "Ativo".equals(cmbStatus.getSelectedItem());
+            btnSalvar.setEnabled(false);
+            async(() -> {
+                RepositorioCargos.salvar(id, nome, ativo);
+                return Boolean.TRUE;
+            }, ok -> {
+                Auditoria.registrar(edicao ? "EDICAO_CARGO" : "CADASTRO_CARGO", nome + (ativo ? "" : " (inativo)"));
+                modal.dispose();
+                carregarCargos();
+                carregarTabela(); // um cargo renomeado muda a coluna Cargo dos funcionários
+            }, ex -> {
+                btnSalvar.setEnabled(true);
+                JOptionPane.showMessageDialog(modal, ex.getMessage(), "Não foi possível salvar", JOptionPane.WARNING_MESSAGE);
+            });
+        });
+        painelBotoes.add(btnCancelar);
+        painelBotoes.add(btnSalvar);
+
+        modal.add(form, BorderLayout.CENTER);
+        modal.add(painelBotoes, BorderLayout.SOUTH);
+        modal.setVisible(true);
     }
 
     // =========================================================================
@@ -414,7 +709,10 @@ public class TelaFuncionarios extends JPanel {
         JTextField txtCPF = criarCampoTexto();
         JTextField txtTelefone = criarCampoTexto();
         JTextField txtEmail = criarCampoTexto();
-        JTextField txtCargo = criarCampoTexto();
+        // Cargo: escolhido na lista de cargos ativos (cadastrados na aba Cargos)
+        JComboBox<String> cmbCargo = new JComboBox<>();
+        cmbCargo.setBackground(FUNDO); cmbCargo.setForeground(Color.WHITE);
+        for (String c : cargosAtivos) cmbCargo.addItem(c);
         JTextField txtUsuario = criarCampoTexto();
         JPasswordField txtSenha = new JPasswordField();
         estilizarCampo(txtSenha);
@@ -430,17 +728,33 @@ public class TelaFuncionarios extends JPanel {
             txtCPF.setText(existente.getCpf());
             txtTelefone.setText(existente.getTelefone());
             txtEmail.setText(existente.getEmail());
-            txtCargo.setText(existente.getCargo());
+            // Se o cargo atual está inativo (ou é antigo), entra na lista para não ser perdido
+            String cargoAtual = existente.getCargo() == null ? "" : existente.getCargo().trim();
+            if (!cargoAtual.isEmpty() && !cargosAtivos.contains(cargoAtual)) cmbCargo.addItem(cargoAtual);
+            cmbCargo.setSelectedItem(cargoAtual);
             txtUsuario.setText(existente.getUsuario());
             cmbAdmin.setSelectedItem(existente.isPermissaoAdmin() ? "Sim" : "Não");
             cmbStatus.setSelectedItem(existente.isAtivo() ? "Ativo" : "Bloqueado");
         }
 
+        // Escolher "Gerente" já marca a permissão de administrador (pode ser trocada depois)
+        cmbCargo.addActionListener(e -> {
+            Object sel = cmbCargo.getSelectedItem();
+            if (sel != null && sel.toString().trim().equalsIgnoreCase("Gerente")) cmbAdmin.setSelectedItem("Sim");
+        });
+
         painelForm.add(criarLabel("Nome Completo:")); painelForm.add(txtNome);
         painelForm.add(criarLabel("CPF (só números):")); painelForm.add(txtCPF);
         painelForm.add(criarLabel("Telefone:")); painelForm.add(txtTelefone);
         painelForm.add(criarLabel("E-mail:")); painelForm.add(txtEmail);
-        painelForm.add(criarLabel("Cargo:")); painelForm.add(txtCargo);
+        painelForm.add(criarLabel("Cargo:")); painelForm.add(cmbCargo);
+
+        if (cmbCargo.getItemCount() == 0) {
+            JOptionPane.showMessageDialog(this, "Nenhum cargo ativo cadastrado.\nCadastre os cargos na aba \"Cargos\" primeiro.",
+                    "Sem cargos", JOptionPane.WARNING_MESSAGE);
+            modal.dispose();
+            return;
+        }
         painelForm.add(criarLabel("Usuário (login):")); painelForm.add(txtUsuario);
         painelForm.add(criarLabel(edicao ? "Senha (vazio = manter):" : "Senha:")); painelForm.add(txtSenha);
         painelForm.add(criarLabel("Permissão administrativa:")); painelForm.add(cmbAdmin);
@@ -459,7 +773,7 @@ public class TelaFuncionarios extends JPanel {
             String cpf = txtCPF.getText().replaceAll("\\D", "");
             String telefone = txtTelefone.getText().replaceAll("\\D", "");
             String email = txtEmail.getText().trim();
-            String cargo = txtCargo.getText().trim();
+            String cargo = cmbCargo.getSelectedItem() == null ? "" : cmbCargo.getSelectedItem().toString().trim();
             String usuario = txtUsuario.getText().trim();
             String senha = new String(txtSenha.getPassword());
             boolean admin = "Sim".equals(cmbAdmin.getSelectedItem());
@@ -479,11 +793,15 @@ public class TelaFuncionarios extends JPanel {
             try {
                 if (edicao) {
                     atualizarFuncionario(existente.getId(), existente.getUsuario(), nome, cpf, telefone, email, cargo, usuario, senha, admin, ativo);
+                    Auditoria.registrar("EDICAO_FUNCIONARIO", nome + " | " + cargo + " | login " + usuario
+                            + (senha.isEmpty() ? "" : " | senha alterada"));
                 } else {
                     inserirFuncionario(nome, cpf, telefone, email, cargo, usuario, senha, admin, ativo);
+                    Auditoria.registrar("CADASTRO_FUNCIONARIO", nome + " | " + cargo + " | login " + usuario);
                 }
                 modal.dispose();
                 carregarTabela();
+                carregarCargos(); // atualiza a contagem de funcionários por cargo
             } catch (SQLException ex) {
                 if (ex.getErrorCode() == 1062) { // chave duplicada
                     JOptionPane.showMessageDialog(modal, "CPF, E-mail ou Usuário já cadastrado.", "Erro", JOptionPane.ERROR_MESSAGE);

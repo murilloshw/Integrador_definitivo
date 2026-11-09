@@ -270,8 +270,38 @@ public class TelaRecargas extends JPanel {
     public List<String> formasAtivasAutoatendimento() throws SQLException {
         try (Connection con = conectar()) {
             garantirTabelaFormas(con);
-            return consultarFormasAtivas(con);
+            // No autoatendimento não há como receber dinheiro: só Pix, crédito e débito.
+            // Dinheiro (e qualquer outra forma) continua disponível no balcão, com funcionário.
+            List<String> aceitas = new ArrayList<>();
+            for (String nome : consultarFormasAtivas(con)) {
+                if (tipoFormaAutoatendimento(nome) != null) {
+                    aceitas.add(nome);
+                }
+            }
+            return aceitas;
         }
+    }
+
+    /**
+     * Qual das formas do autoatendimento este nome representa: "pix", "credito", "debito",
+     * ou null se não for aceita lá (ex.: "Dinheiro"). Ignora acentos e maiúsculas.
+     */
+    static String tipoFormaAutoatendimento(String nome) {
+        if (nome == null) {
+            return null;
+        }
+        String n = java.text.Normalizer.normalize(nome, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "").toLowerCase().trim();
+        if (n.contains("pix")) {
+            return "pix";
+        }
+        if (n.contains("credito")) {
+            return "credito";
+        }
+        if (n.contains("debito")) {
+            return "debito";
+        }
+        return null;
     }
 
     /**
@@ -854,6 +884,8 @@ public class TelaRecargas extends JPanel {
                 throw e;
             }
         }
+        Auditoria.registrar(idFuncionario == null ? "RECARGA_AUTOATENDIMENTO" : "RECARGA",
+                String.format("Cartão %03d | R$ %s | %s | +%d créditos", idCartao, valor.toPlainString(), forma, creditos));
         return creditos;
     }
 
@@ -917,14 +949,16 @@ public class TelaRecargas extends JPanel {
         if (!Exclusao.confirmar(this, "a forma de pagamento " + nome)) {
             return;
         }
+        String idForma = String.valueOf(modeloFormas.getValueAt(m, 0)).trim();
         try (Connection con = Conexao.conectar();
                 PreparedStatement ps = con.prepareStatement("DELETE FROM formas_pagamento WHERE ID_Forma = ?")) {
-            ps.setLong(1, Long.parseLong(String.valueOf(modeloFormas.getValueAt(m, 0)).trim()));
+            ps.setLong(1, Long.parseLong(idForma));
             ps.executeUpdate();
         } catch (SQLException ex) {
             Exclusao.erro(this, ex);
             return;
         }
+        Auditoria.registrar("EXCLUSAO_FORMA_PAGAMENTO", "ID " + idForma + " | " + nome);
         carregar(false, true);
     }
 
@@ -1027,6 +1061,8 @@ public class TelaRecargas extends JPanel {
                 }
             }
         }
+        Auditoria.registrar(id < 0 ? "CADASTRO_FORMA_PAGAMENTO" : "EDICAO_FORMA_PAGAMENTO",
+                nome + (ativa ? "" : " (inativa)"));
     }
 
     // =========================================================================

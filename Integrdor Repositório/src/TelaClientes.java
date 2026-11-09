@@ -358,7 +358,9 @@ public class TelaClientes extends JPanel {
 
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) {
-                    return keys.getLong(1);
+                    long id = keys.getLong(1);
+                    Auditoria.registrar("CADASTRO_CLIENTE", "ID " + id + " | " + nome);
+                    return id;
                 }
             }
             throw new SQLException("O banco não retornou o ID do cliente cadastrado.");
@@ -382,6 +384,7 @@ public class TelaClientes extends JPanel {
             ps.setLong(6, id);
             ps.executeUpdate();
         }
+        Auditoria.registrar("EDICAO_CLIENTE", "ID " + id + " | " + nome);
     }
 
     /** Traduz o erro 1062 (valor duplicado) do MySQL para uma mensagem amigável. */
@@ -557,14 +560,16 @@ public class TelaClientes extends JPanel {
         if (!Exclusao.confirmar(this, "o cliente " + nome)) {
             return;
         }
+        long id = idDaLinha(linha);
         try (Connection con = conectar();
                 PreparedStatement ps = con.prepareStatement("DELETE FROM clientes WHERE ID_Cliente = ?")) {
-            ps.setLong(1, idDaLinha(linha));
+            ps.setLong(1, id);
             ps.executeUpdate();
         } catch (SQLException ex) {
             Exclusao.erro(this, ex);
             return;
         }
+        Auditoria.registrar("EXCLUSAO_CLIENTE", "ID " + id + " | " + nome);
         carregarClientes();
     }
 
