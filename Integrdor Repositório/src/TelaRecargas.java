@@ -1,31 +1,10 @@
-import java.awt.BorderLayout;
-import java.awt.CardLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Cursor;
-import java.awt.Dialog;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Font;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
-import java.awt.LinearGradientPaint;
-import java.awt.RenderingHints;
-import java.awt.event.FocusAdapter;
-import java.awt.event.FocusEvent;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
+import java.awt.*;
+import java.awt.event.*;
 import java.awt.geom.Point2D;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
+import java.text.Normalizer;
 import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -37,241 +16,143 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JDialog;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTable;
-import javax.swing.JTextField;
-import javax.swing.RowFilter;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
-import javax.swing.SwingWorker;
-import javax.swing.Timer;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableRowSorter;
+import javax.swing.*;
+import javax.swing.event.*;
+import javax.swing.table.*;
 
 /**
- * Tela de Recargas, com duas abas:
- *
- * - Recargas: histórico de recargas + botão "+ Nova Recarga".
- *   Regra: 1 real = 5 créditos. Ao salvar, a recarga é gravada na tabela `recargas`
- *   E os créditos são somados ao cartão (`cartões`.Creditos), na mesma transação
- *   (ou grava as duas coisas, ou nenhuma).
- *
- * - Formas de Pagamento (só o Manager Master enxerga): cadastro das formas aceitas
- *   nas recargas, salvas na tabela `formas_pagamento` (criada automaticamente na
- *   primeira vez). Para não perder o histórico, o normal é desativar em vez de excluir.
- *
- * As consultas rodam em SEGUNDO PLANO (SwingWorker); enquanto isso a tabela mostra um
- * "ghost loading" (linhas fantasma com brilho), então a tela nunca trava esperando o banco.
- *
- * Também serve de "serviço" para o autoatendimento (buscarCartao, formasAtivasAutoatendimento,
- * registrarRecargaAutoatendimento), que usa exatamente as mesmas regras.
+ * Tela de Recargas: aba "Recargas" (todos) e "Formas de Pagamento" (só Manager
+ * Master).
+ * 1 real = 5 créditos. Recarga e soma dos créditos são gravadas na mesma
+ * transação.
  */
 public class TelaRecargas extends JPanel {
 
-    // =========================================================================
-    // CONSTANTES E REGRAS
-    // Regra de conversão, cores, formatos e o SQL que cria a tabela de formas.
-    // =========================================================================
-    static final int CREDITOS_POR_REAL = 5; // visível no pacote: o autoatendimento usa a mesma regra
+    static final int CREDITOS_POR_REAL = 5;
 
-    private static final Color FUNDO = new Color(2, 12, 27);
-    private static final Color CARD = new Color(10, 22, 40);
-    private static final Color BORDA = new Color(23, 42, 69);
-    private static final Color AZUL = new Color(14, 116, 233);
-    private static final Color TEXTO_SUAVE = new Color(148, 163, 184);
-    private static final Color CAMPO = new Color(13, 27, 46);
-
-    private static final String CARD_RECARGAS = "recargas";
-    private static final String CARD_FORMAS = "formas";
-
+    private static final Color FUNDO = new Color(2, 12, 27), CARD = new Color(10, 22, 40),
+            BORDA = new Color(23, 42, 69), AZUL = new Color(14, 116, 233),
+            TEXTO_SUAVE = new Color(148, 163, 184), CAMPO = new Color(13, 27, 46),
+            AZUL_CLARO = new Color(125, 211, 252);
     private static final NumberFormat MOEDA = NumberFormat.getCurrencyInstance(new Locale("pt", "BR"));
     private static final DateTimeFormatter DATA_HORA = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
-
-    // Criada sozinha na primeira vez (não precisa rodar SQL na mão)
     private static final String SQL_CRIAR_FORMAS = "CREATE TABLE IF NOT EXISTS formas_pagamento ("
-            + "ID_Forma INT AUTO_INCREMENT PRIMARY KEY, "
-            + "Nome VARCHAR(50) NOT NULL UNIQUE, "
+            + "ID_Forma INT AUTO_INCREMENT PRIMARY KEY, Nome VARCHAR(50) NOT NULL UNIQUE, "
             + "Ativo BOOLEAN NOT NULL DEFAULT TRUE)";
+    private static final int GHOST_MIN_MS = 350;
     private static boolean tabelaFormasPronta = false;
 
-    // O ghost fica visível pelo menos este tempo, para não "piscar" quando o banco responde rápido
-    private static final int GHOST_MIN_MS = 350;
-
-    // =========================================================================
-    // CAMPOS
-    // Componentes da tela e o estado das cargas em andamento.
-    // =========================================================================
     private final CardLayout cards = new CardLayout();
-    private JPanel painelCards;
-    private JButton abaRecargas;
-    private JButton abaFormas;
-    private boolean abaFormasAtiva = false;
-
-    /** Ação do botão "Autoatendimento" (definida pelo App, que mostra a tela presa por cima de tudo). */
+    private JPanel painelCards, cardRecargas, cardFormas;
+    private JButton abaRecargas, abaFormas;
+    private boolean abaFormasAtiva;
     private Runnable acaoAutoatendimento;
-
-    private JTable tabelaRecargas;
-    private DefaultTableModel modeloRecargas;
-    private TableRowSorter<DefaultTableModel> sorterRecargas;
-
-    private JTable tabelaFormas;
-    private DefaultTableModel modeloFormas;
-    private TableRowSorter<DefaultTableModel> sorterFormas;
-
+    private JTable tabRecargas, tabFormas;
+    private DefaultTableModel modeloRecargas, modeloFormas;
+    private TableRowSorter<DefaultTableModel> sorterRecargas, sorterFormas;
     private JLabel lblTotal;
+    private GhostPanel ghostRecargas, ghostFormas;
+    private boolean carregandoRecargas, carregandoFormas, atualizandoSilencio;
+    private int cargaRecargasId, cargaFormasId;
+    private List<String> formasAtivasCache;
 
-    // ghost loading
-    private JPanel cardTabelaRecargas;
-    private JPanel cardTabelaFormas;
-    private GhostPanel ghostRecargas;
-    private GhostPanel ghostFormas;
-    private boolean carregandoRecargas = false;
-    private boolean carregandoFormas = false;
-    private int cargaRecargasId = 0; // descarta respostas antigas se o usuário recarregar várias vezes
-    private int cargaFormasId = 0;
-
-    /** true enquanto uma atualização automática está em andamento. */
-    private boolean atualizandoSilencio = false;
-
-    /** Formas ativas da última carga (null = ainda não carregou). Deixa o modal abrir instantâneo. */
-    private List<String> formasAtivasCache = null;
-
-    // =========================================================================
-    // CONSTRUTOR
-    // Monta a tela: título + abas no topo, conteúdo no centro e total no rodapé.
-    // =========================================================================
     public TelaRecargas() {
         setBackground(FUNDO);
         setLayout(new BorderLayout(15, 12));
         setBorder(BorderFactory.createEmptyBorder(20, 25, 15, 25));
 
-        // 1. TOPO: título + abas
         JPanel topo = new JPanel(new BorderLayout(0, 10));
         topo.setOpaque(false);
+        topo.add(rotulo("Recargas", Font.BOLD, 22, Color.WHITE), BorderLayout.NORTH);
 
-        JLabel lblTitulo = new JLabel("Recargas");
-        lblTitulo.setFont(new Font("Segoe UI", Font.BOLD, 22));
-        lblTitulo.setForeground(Color.WHITE);
-
+        abaRecargas = criarAba("Recargas", () -> mostrarAba(false));
+        abaFormas = criarAba("Formas de Pagamento", () -> mostrarAba(true));
+        abaFormas.setVisible(false);
         JPanel abas = new JPanel(new FlowLayout(FlowLayout.LEFT, 18, 0));
         abas.setOpaque(false);
-        abaRecargas = criarAba("Recargas");
-        abaFormas = criarAba("Formas de Pagamento");
-        abaFormas.setVisible(false); // só aparece para o Manager Master
-        abaRecargas.addActionListener(e -> mostrarAba(false));
-        abaFormas.addActionListener(e -> mostrarAba(true));
         abas.add(abaRecargas);
         abas.add(abaFormas);
-
-        topo.add(lblTitulo, BorderLayout.NORTH);
         topo.add(abas, BorderLayout.CENTER);
         add(topo, BorderLayout.NORTH);
 
-        // 2. CENTRO: conteúdo de cada aba
         painelCards = new JPanel(cards);
         painelCards.setOpaque(false);
-        painelCards.add(criarPainelRecargas(), CARD_RECARGAS);
-        painelCards.add(criarPainelFormas(), CARD_FORMAS);
+        painelCards.add(montarRecargas(), "recargas");
+        painelCards.add(montarFormas(), "formas");
         add(painelCards, BorderLayout.CENTER);
 
-        // 3. RODAPÉ: total + regra de conversão
+        lblTotal = rotulo("");
         JPanel rodape = new JPanel(new BorderLayout());
         rodape.setOpaque(false);
         rodape.setPreferredSize(new Dimension(0, 35));
-
-        lblTotal = criarRotulo("");
         rodape.add(lblTotal, BorderLayout.WEST);
-        rodape.add(criarRotulo("1 real = " + CREDITOS_POR_REAL + " créditos"), BorderLayout.EAST);
+        rodape.add(rotulo("1 real = " + CREDITOS_POR_REAL + " créditos"), BorderLayout.EAST);
         add(rodape, BorderLayout.SOUTH);
 
         mostrarAba(false);
     }
 
-    // =========================================================================
-    // API PÚBLICA (usada pelo App)
-    // Recarregar ao abrir a tela, atualização automática e botão de autoatendimento.
-    // =========================================================================
+    // ===================== API PÚBLICA (App) =====================
 
-    /** Atualiza as permissões e recarrega os dados do banco (em segundo plano, com ghost loading). */
     public void carregarDadosRecargas() {
         atualizarPermissoes();
         carregar(true, Sessao.isManagerMaster());
     }
 
-    /** Define o que o botão "Autoatendimento" faz (o App abre a tela do cliente). */
     public void setAcaoAutoatendimento(Runnable acao) {
         this.acaoAutoatendimento = acao;
     }
 
     /**
-     * Atualização em tempo real da aba Recargas: busca em segundo plano, sem ghost e sem mensagem de erro.
-     * Só troca a tabela se chegou algo novo ou alterado.
+     * Atualiza a aba Recargas em segundo plano, sem ghost e sem erro. Só troca se
+     * algo mudou.
      */
     public void atualizarSilenciosamente() {
         if (carregandoRecargas || atualizandoSilencio) {
             return;
         }
         atualizandoSilencio = true;
-        final int cargaAtual = cargaRecargasId; // se uma carga explícita começar depois, esta resposta é descartada
+        int cargaAtual = cargaRecargasId;
         async(() -> {
-                    try (Connection con = conectar()) {
-                        return consultarRecargas(con);
-                    }
-                },
-                linhas -> {
-                    atualizandoSilencio = false;
-                    if (cargaAtual == cargaRecargasId && !carregandoRecargas && !mesmasLinhas(linhas)) {
-                        aplicarRecargasPreservandoSelecao(linhas);
-                    }
-                },
-                ex -> {
-                    atualizandoSilencio = false;
-                    System.err.println("Atualização das recargas falhou: " + ex.getMessage());
-                });
+            try (Connection con = conectar()) {
+                return consultarRecargas(con);
+            }
+        }, linhas -> {
+            atualizandoSilencio = false;
+            if (cargaAtual == cargaRecargasId && !carregandoRecargas && !mesmasLinhas(linhas)) {
+                aplicarRecargasPreservandoSelecao(linhas);
+            }
+        }, ex -> {
+            atualizandoSilencio = false;
+            System.err.println("Atualização das recargas falhou: " + ex.getMessage());
+        });
     }
 
-    // =========================================================================
-    // API DO AUTOATENDIMENTO
-    // Chamadas em SEGUNDO PLANO pela tela do cliente (bloqueiam até o banco responder).
-    // =========================================================================
+    // ===================== API DO AUTOATENDIMENTO =====================
 
-    /** Lê o cartão. Devolve null se não existir. Não expõe dados do cliente além do nome de exibição. */
+    /** Devolve null se o cartão não existir. */
     public CartaoInfo buscarCartao(long idCartao) throws SQLException {
         String sql = "SELECT `Usuário` AS usuario, Creditos AS creditos, Ativo AS ativo "
                 + "FROM `cartões` WHERE `ID_Cartão` = ?";
-        try (Connection con = conectar();
-                PreparedStatement ps = con.prepareStatement(sql)) {
+        try (Connection con = conectar(); PreparedStatement ps = con.prepareStatement(sql)) {
             ps.setLong(1, idCartao);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
                     return null;
                 }
                 String nome = rs.getString("usuario");
-                if (nome == null || nome.trim().isEmpty()) {
-                    nome = "cliente";
-                }
-                return new CartaoInfo(idCartao, nome.trim(), rs.getLong("creditos"), rs.getBoolean("ativo"));
+                nome = (nome == null || nome.trim().isEmpty()) ? "cliente" : nome.trim();
+                return new CartaoInfo(idCartao, nome, rs.getLong("creditos"), rs.getBoolean("ativo"));
             }
         }
     }
 
-    /** Formas de pagamento ativas, buscadas agora (o cliente sempre vê a lista atual). */
+    /**
+     * Só Pix, crédito e débito: no autoatendimento não há como receber dinheiro.
+     */
     public List<String> formasAtivasAutoatendimento() throws SQLException {
         try (Connection con = conectar()) {
             garantirTabelaFormas(con);
-            // No autoatendimento não há como receber dinheiro: só Pix, crédito e débito.
-            // Dinheiro (e qualquer outra forma) continua disponível no balcão, com funcionário.
             List<String> aceitas = new ArrayList<>();
             for (String nome : consultarFormasAtivas(con)) {
                 if (tipoFormaAutoatendimento(nome) != null) {
@@ -282,53 +163,38 @@ public class TelaRecargas extends JPanel {
         }
     }
 
-    /**
-     * Qual das formas do autoatendimento este nome representa: "pix", "credito", "debito",
-     * ou null se não for aceita lá (ex.: "Dinheiro"). Ignora acentos e maiúsculas.
-     */
+    /** "pix", "credito", "debito" ou null. Ignora acentos e maiúsculas. */
     static String tipoFormaAutoatendimento(String nome) {
         if (nome == null) {
             return null;
         }
-        String n = java.text.Normalizer.normalize(nome, java.text.Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "").toLowerCase().trim();
-        if (n.contains("pix")) {
-            return "pix";
-        }
-        if (n.contains("credito")) {
-            return "credito";
-        }
-        if (n.contains("debito")) {
-            return "debito";
+        String n = Normalizer.normalize(nome, Normalizer.Form.NFD).replaceAll("\\p{M}", "").toLowerCase().trim();
+        for (String tipo : new String[] { "pix", "credito", "debito" }) {
+            if (n.contains(tipo)) {
+                return tipo;
+            }
         }
         return null;
     }
 
-    /**
-     * Registra uma recarga feita pelo cliente no autoatendimento.
-     * Igual à recarga da recepção, mas sem funcionário responsável (campo Funcionário vazio).
-     * Retorna quantos créditos foram adicionados.
-     */
     public long registrarRecargaAutoatendimento(long idCartao, BigDecimal valor, String forma)
             throws SQLException, RecargaException {
         return registrarRecarga(idCartao, valor, forma, null);
     }
 
-    // =========================================================================
-    // MONTAGEM DA INTERFACE
-    // Abas do topo e o conteúdo de cada aba (busca, botões e tabela).
-    // =========================================================================
-    private JButton criarAba(String texto) {
+    // ===================== MONTAGEM =====================
+
+    private JButton criarAba(String texto, Runnable acao) {
         JButton b = new JButton(texto);
-        b.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        b.setFont(fonte(Font.BOLD, 14));
         b.setContentAreaFilled(false);
         b.setFocusPainted(false);
         b.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        b.addActionListener(e -> acao.run());
         return b;
     }
 
-    /** Aba ativa fica branca e sublinhada de azul; a inativa fica cinza. */
-    private void estilizarAba(JButton b, boolean ativa) {
+    private static void estilizarAba(JButton b, boolean ativa) {
         b.setForeground(ativa ? Color.WHITE : TEXTO_SUAVE);
         b.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 3, 0, ativa ? AZUL : new Color(0, 0, 0, 0)),
@@ -337,13 +203,12 @@ public class TelaRecargas extends JPanel {
 
     private void mostrarAba(boolean formas) {
         abaFormasAtiva = formas;
-        cards.show(painelCards, formas ? CARD_FORMAS : CARD_RECARGAS);
+        cards.show(painelCards, formas ? "formas" : "recargas");
         estilizarAba(abaRecargas, !formas);
         estilizarAba(abaFormas, formas);
         atualizarTotal();
     }
 
-    /** Só o Manager Master vê a aba "Formas de Pagamento". */
     private void atualizarPermissoes() {
         boolean master = Sessao.isManagerMaster();
         abaFormas.setVisible(master);
@@ -352,154 +217,123 @@ public class TelaRecargas extends JPanel {
         }
     }
 
-    /** Texto do rodapé: "Carregando..." ou o total de linhas visíveis na aba atual. */
     private void atualizarTotal() {
-        if (abaFormasAtiva) {
-            if (carregandoFormas) {
-                lblTotal.setText("Carregando...");
-                return;
-            }
-            int n = tabelaFormas.getRowCount();
-            lblTotal.setText("Total: " + n + (n == 1 ? " forma de pagamento" : " formas de pagamento"));
-        } else {
-            if (carregandoRecargas) {
-                lblTotal.setText("Carregando...");
-                return;
-            }
-            int n = tabelaRecargas.getRowCount();
-            lblTotal.setText("Total: " + n + (n == 1 ? " recarga" : " recargas"));
+        boolean f = abaFormasAtiva;
+        if (f ? carregandoFormas : carregandoRecargas) {
+            lblTotal.setText("Carregando...");
+            return;
         }
+        int n = (f ? tabFormas : tabRecargas).getRowCount();
+        String unidade = f
+                ? (n == 1 ? " forma de pagamento" : " formas de pagamento")
+                : (n == 1 ? " recarga" : " recargas");
+        lblTotal.setText("Total: " + n + unidade);
     }
 
-    /** Aba 1: busca, botões "Autoatendimento" e "+ Nova Recarga" e a tabela de recargas. */
-    private JPanel criarPainelRecargas() {
-        JPanel painel = new JPanel(new BorderLayout(0, 15));
-        painel.setOpaque(false);
-
-        JPanel acoes = new JPanel(new BorderLayout(15, 0));
-        acoes.setOpaque(false);
-        acoes.add(criarBusca("Buscar por cartão, funcionário ou forma de pagamento...",
-                texto -> filtrar(sorterRecargas, texto)), BorderLayout.WEST);
-
-        JButton btnAuto = criarBotao("Autoatendimento", false, 190);
+    private JPanel montarRecargas() {
+        JButton btnAuto = botao("Autoatendimento", false, 190);
         btnAuto.addActionListener(e -> {
             if (acaoAutoatendimento != null) {
                 acaoAutoatendimento.run();
             }
         });
-
-        JButton btnNova = criarBotao("+ Nova Recarga", true, 175);
+        JButton btnNova = botao("+ Nova Recarga", true, 175);
         btnNova.addActionListener(e -> abrirModalNovaRecarga());
-        JPanel botoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        botoes.setOpaque(false);
-        botoes.add(btnAuto);
-        botoes.add(btnNova);
-        acoes.add(botoes, BorderLayout.EAST);
 
-        modeloRecargas = modeloSomenteLeitura(
-                "ID", "Cartão", "Funcionário", "Valor", "Créditos", "Forma de Pagamento", "Data e Hora");
-        tabelaRecargas = criarTabela(modeloRecargas);
+        modeloRecargas = somenteLeitura("ID", "Cartão", "Funcionário", "Valor", "Créditos",
+                "Forma de Pagamento", "Data e Hora");
+        tabRecargas = tabela(modeloRecargas);
         sorterRecargas = new TableRowSorter<>(modeloRecargas);
-        tabelaRecargas.setRowSorter(sorterRecargas);
+        tabRecargas.setRowSorter(sorterRecargas);
 
-        painel.add(acoes, BorderLayout.NORTH);
         ghostRecargas = new GhostPanel(7);
-        cardTabelaRecargas = criarCardTabela(tabelaRecargas, ghostRecargas);
-        painel.add(cardTabelaRecargas, BorderLayout.CENTER);
-        return painel;
+        cardRecargas = cardTabela(tabRecargas, ghostRecargas);
+        return painelAba(busca("Buscar por cartão, funcionário ou forma de pagamento...",
+                t -> filtrar(sorterRecargas, t)), cardRecargas, btnAuto, btnNova);
     }
 
-    /** Aba 2 (Manager Master): busca, botões Editar/Excluir/"+ Nova Forma" e a tabela de formas. */
-    private JPanel criarPainelFormas() {
-        JPanel painel = new JPanel(new BorderLayout(0, 15));
-        painel.setOpaque(false);
-
-        JPanel acoes = new JPanel(new BorderLayout(15, 0));
-        acoes.setOpaque(false);
-        acoes.add(criarBusca("Buscar forma de pagamento...", texto -> filtrar(sorterFormas, texto)),
-                BorderLayout.WEST);
-
-        JButton btnEditar = criarBotao("Editar", false, 100);
+    private JPanel montarFormas() {
+        JButton btnEditar = botao("Editar", false, 100);
         btnEditar.addActionListener(e -> editarFormaSelecionada());
-        JButton btnNova = criarBotao("+ Nova Forma", true, 150);
-        btnNova.addActionListener(e -> abrirModalForma(-1, "", true));
-
-        JPanel botoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        botoes.setOpaque(false);
         JButton btnExcluir = Exclusao.criarBotao();
         btnExcluir.addActionListener(e -> excluirFormaSelecionada());
+        JButton btnNova = botao("+ Nova Forma", true, 150);
+        btnNova.addActionListener(e -> abrirModalForma(-1, "", true));
 
-        botoes.add(btnEditar);
-        botoes.add(btnExcluir);
-        botoes.add(btnNova);
-        acoes.add(botoes, BorderLayout.EAST);
-
-        modeloFormas = modeloSomenteLeitura("ID", "Forma de Pagamento", "Status");
-        tabelaFormas = criarTabela(modeloFormas);
+        modeloFormas = somenteLeitura("ID", "Forma de Pagamento", "Status");
+        tabFormas = tabela(modeloFormas);
         sorterFormas = new TableRowSorter<>(modeloFormas);
-        tabelaFormas.setRowSorter(sorterFormas);
+        tabFormas.setRowSorter(sorterFormas);
 
-        painel.add(acoes, BorderLayout.NORTH);
         ghostFormas = new GhostPanel(3);
-        cardTabelaFormas = criarCardTabela(tabelaFormas, ghostFormas);
-        painel.add(cardTabelaFormas, BorderLayout.CENTER);
-        return painel;
+        cardFormas = cardTabela(tabFormas, ghostFormas);
+        return painelAba(busca("Buscar forma de pagamento...", t -> filtrar(sorterFormas, t)),
+                cardFormas, btnEditar, btnExcluir, btnNova);
     }
 
-    // =========================================================================
-    // CARREGAMENTO DE DADOS (BANCO)
-    // Busca em segundo plano, liga/desliga o ghost e preenche as tabelas.
-    // =========================================================================
+    /** Topo com busca e botões à direita, e o conteúdo embaixo. */
+    private static JPanel painelAba(JPanel busca, JComponent conteudo, JButton... botoes) {
+        JPanel direita = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        direita.setOpaque(false);
+        for (JButton b : botoes) {
+            direita.add(b);
+        }
+        JPanel acoes = new JPanel(new BorderLayout(15, 0));
+        acoes.setOpaque(false);
+        acoes.add(busca, BorderLayout.WEST);
+        acoes.add(direita, BorderLayout.EAST);
 
-    /**
-     * Mostra o ghost nas tabelas pedidas, busca os dados fora da thread da interface
-     * e, quando chegam, troca o ghost pela tabela.
-     */
+        JPanel p = new JPanel(new BorderLayout(0, 15));
+        p.setOpaque(false);
+        p.add(acoes, BorderLayout.NORTH);
+        p.add(conteudo, BorderLayout.CENTER);
+        return p;
+    }
+
+    // ===================== CARREGAMENTO =====================
+
+    /** Mostra o ghost, busca em segundo plano e troca o ghost pela tabela. */
     private void carregar(boolean recargas, boolean formas) {
-        final long inicio = System.currentTimeMillis();
-        final int idRecargas = recargas ? ++cargaRecargasId : cargaRecargasId;
-        final int idFormas = formas ? ++cargaFormasId : cargaFormasId;
+        long inicio = System.currentTimeMillis();
+        int idR = recargas ? ++cargaRecargasId : cargaRecargasId;
+        int idF = formas ? ++cargaFormasId : cargaFormasId;
 
         if (recargas) {
             carregandoRecargas = true;
-            mostrarGhost(cardTabelaRecargas, ghostRecargas, true);
+            mostrarGhost(cardRecargas, ghostRecargas, true);
         }
         if (formas) {
             carregandoFormas = true;
-            mostrarGhost(cardTabelaFormas, ghostFormas, true);
+            mostrarGhost(cardFormas, ghostFormas, true);
         }
         atualizarTotal();
 
-        async(() -> buscarDados(recargas, formas),
-                dados -> {
-                    Runnable aplicar = () -> aplicarDados(dados,
-                            recargas && idRecargas == cargaRecargasId,
-                            formas && idFormas == cargaFormasId);
-                    long resto = GHOST_MIN_MS - (System.currentTimeMillis() - inicio);
-                    if (resto > 0) {
-                        Timer t = new Timer((int) resto, ev -> aplicar.run());
-                        t.setRepeats(false);
-                        t.start();
-                    } else {
-                        aplicar.run();
-                    }
-                },
-                ex -> {
-                    // não conseguiu nem conectar: tira o ghost e avisa
-                    if (recargas && idRecargas == cargaRecargasId) {
-                        carregandoRecargas = false;
-                        mostrarGhost(cardTabelaRecargas, ghostRecargas, false);
-                    }
-                    if (formas && idFormas == cargaFormasId) {
-                        carregandoFormas = false;
-                        mostrarGhost(cardTabelaFormas, ghostFormas, false);
-                    }
-                    atualizarTotal();
-                    erro(this, "Não foi possível conectar ao banco de dados:\n" + ex.getMessage());
-                });
+        async(() -> buscarDados(recargas, formas), dados -> {
+            Runnable aplicar = () -> aplicarDados(dados,
+                    recargas && idR == cargaRecargasId, formas && idF == cargaFormasId);
+            long resto = GHOST_MIN_MS - (System.currentTimeMillis() - inicio);
+            if (resto > 0) {
+                Timer t = new Timer((int) resto, ev -> aplicar.run());
+                t.setRepeats(false);
+                t.start();
+            } else {
+                aplicar.run();
+            }
+        }, ex -> {
+            if (recargas && idR == cargaRecargasId) {
+                carregandoRecargas = false;
+                mostrarGhost(cardRecargas, ghostRecargas, false);
+            }
+            if (formas && idF == cargaFormasId) {
+                carregandoFormas = false;
+                mostrarGhost(cardFormas, ghostFormas, false);
+            }
+            atualizarTotal();
+            erro(this, "Não foi possível conectar ao banco de dados:\n" + ex.getMessage());
+        });
     }
 
-    /** Roda numa thread de fundo, com UMA conexão para tudo (cada parte trata o seu próprio erro). */
+    /** Uma conexão para tudo; cada parte guarda o próprio erro. */
     private DadosCarga buscarDados(boolean recargas, boolean formas) throws SQLException {
         DadosCarga d = new DadosCarga();
         try (Connection con = conectar()) {
@@ -529,7 +363,6 @@ public class TelaRecargas extends JPanel {
         return d;
     }
 
-    /** De volta na thread da interface: coloca os dados nas tabelas e mostra os erros, se houver. */
     private void aplicarDados(DadosCarga d, boolean aplicarRecargas, boolean aplicarFormas) {
         if (d.formasAtivas != null) {
             formasAtivasCache = d.formasAtivas;
@@ -537,7 +370,7 @@ public class TelaRecargas extends JPanel {
         if (aplicarRecargas) {
             preencher(modeloRecargas, d.recargas);
             carregandoRecargas = false;
-            mostrarGhost(cardTabelaRecargas, ghostRecargas, false);
+            mostrarGhost(cardRecargas, ghostRecargas, false);
             if (d.erroRecargas != null) {
                 erro(this, "Não foi possível carregar as recargas do banco de dados:\n" + d.erroRecargas);
             }
@@ -545,7 +378,7 @@ public class TelaRecargas extends JPanel {
         if (aplicarFormas) {
             preencher(modeloFormas, d.formas);
             carregandoFormas = false;
-            mostrarGhost(cardTabelaFormas, ghostFormas, false);
+            mostrarGhost(cardFormas, ghostFormas, false);
             if (d.erroFormas != null) {
                 erro(this, "Não foi possível carregar as formas de pagamento:\n" + d.erroFormas);
             }
@@ -553,21 +386,18 @@ public class TelaRecargas extends JPanel {
         atualizarTotal();
     }
 
-    /** Usado pela atualização automática: troca as linhas mantendo a recarga que estava selecionada. */
     private void aplicarRecargasPreservandoSelecao(List<Object[]> linhas) {
         String idSelecionado = null;
-        int visual = tabelaRecargas.getSelectedRow();
-        if (visual >= 0) {
-            idSelecionado = String.valueOf(modeloRecargas.getValueAt(tabelaRecargas.convertRowIndexToModel(visual), 0));
+        int v = tabRecargas.getSelectedRow();
+        if (v >= 0) {
+            idSelecionado = String.valueOf(modeloRecargas.getValueAt(tabRecargas.convertRowIndexToModel(v), 0));
         }
-
         preencher(modeloRecargas, linhas);
-
         if (idSelecionado != null) {
             for (int m = 0; m < modeloRecargas.getRowCount(); m++) {
                 if (idSelecionado.equals(modeloRecargas.getValueAt(m, 0))) {
-                    int v = tabelaRecargas.convertRowIndexToView(m);
-                    tabelaRecargas.setRowSelectionInterval(v, v);
+                    int vis = tabRecargas.convertRowIndexToView(m);
+                    tabRecargas.setRowSelectionInterval(vis, vis);
                     break;
                 }
             }
@@ -575,15 +405,14 @@ public class TelaRecargas extends JPanel {
         atualizarTotal();
     }
 
-    /** true se as linhas novas são iguais às que já estão na tabela (nada mudou). */
     private boolean mesmasLinhas(List<Object[]> novas) {
         if (novas.size() != modeloRecargas.getRowCount()) {
             return false;
         }
-        int colunas = modeloRecargas.getColumnCount();
+        int cols = modeloRecargas.getColumnCount();
         for (int r = 0; r < novas.size(); r++) {
-            Object[] atual = new Object[colunas];
-            for (int c = 0; c < colunas; c++) {
+            Object[] atual = new Object[cols];
+            for (int c = 0; c < cols; c++) {
                 atual[c] = modeloRecargas.getValueAt(r, c);
             }
             if (!Arrays.equals(atual, novas.get(r))) {
@@ -593,16 +422,16 @@ public class TelaRecargas extends JPanel {
         return true;
     }
 
-    private void preencher(DefaultTableModel modelo, List<Object[]> linhas) {
-        modelo.setRowCount(0);
+    private static void preencher(DefaultTableModel m, List<Object[]> linhas) {
+        m.setRowCount(0);
         if (linhas != null) {
             for (Object[] l : linhas) {
-                modelo.addRow(l);
+                m.addRow(l);
             }
         }
     }
 
-    private void mostrarGhost(JPanel card, GhostPanel ghost, boolean ligar) {
+    private static void mostrarGhost(JPanel card, GhostPanel ghost, boolean ligar) {
         ((CardLayout) card.getLayout()).show(card, ligar ? "ghost" : "tabela");
         if (ligar) {
             ghost.iniciar();
@@ -611,13 +440,10 @@ public class TelaRecargas extends JPanel {
         }
     }
 
-    /** SELECT de todas as recargas, já convertido em linhas da tabela. */
     private List<Object[]> consultarRecargas(Connection con) throws SQLException {
-        String sql = "SELECT ID_Recarga AS id_recarga, `ID_Cartão` AS id_cartao, "
-                + "`ID_Funcionário` AS id_func, Valor AS valor, "
-                + "Forma_Pagamento AS forma, Data_Hora AS data_hora "
+        String sql = "SELECT ID_Recarga AS id_recarga, `ID_Cartão` AS id_cartao, `ID_Funcionário` AS id_func, "
+                + "Valor AS valor, Forma_Pagamento AS forma, Data_Hora AS data_hora "
                 + "FROM recargas ORDER BY Data_Hora DESC";
-
         List<Object[]> linhas = new ArrayList<>();
         try (PreparedStatement ps = con.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
@@ -627,9 +453,7 @@ public class TelaRecargas extends JPanel {
                 }
                 long creditos = valor.multiply(BigDecimal.valueOf(CREDITOS_POR_REAL))
                         .setScale(0, RoundingMode.HALF_UP).longValue();
-                // Lido como horário "de parede" (sem conversão de fuso): é exatamente o que foi gravado.
                 LocalDateTime dataHora = rs.getObject("data_hora", LocalDateTime.class);
-
                 linhas.add(new Object[] {
                         String.format("%03d", rs.getLong("id_recarga")),
                         String.format("%03d", rs.getLong("id_cartao")),
@@ -644,7 +468,6 @@ public class TelaRecargas extends JPanel {
         return linhas;
     }
 
-    /** SELECT de todas as formas de pagamento (ativas e inativas). */
     private List<Object[]> consultarFormas(Connection con) throws SQLException {
         List<Object[]> linhas = new ArrayList<>();
         try (PreparedStatement ps = con.prepareStatement(
@@ -661,7 +484,6 @@ public class TelaRecargas extends JPanel {
         return linhas;
     }
 
-    /** Só os nomes das formas ativas (para o combo da Nova Recarga). */
     private List<String> consultarFormasAtivas(Connection con) throws SQLException {
         List<String> nomes = new ArrayList<>();
         try (PreparedStatement ps = con.prepareStatement(
@@ -675,8 +497,7 @@ public class TelaRecargas extends JPanel {
     }
 
     /**
-     * Formas ativas para o modal "Nova Recarga". Usa a lista da última carga (abre na hora);
-     * só consulta o banco se ainda não houver nenhuma.
+     * Usa a lista da última carga; só consulta o banco se ainda não houver nenhuma.
      */
     private List<String> obterFormasAtivas() {
         if (formasAtivasCache != null && !formasAtivasCache.isEmpty()) {
@@ -692,7 +513,7 @@ public class TelaRecargas extends JPanel {
         return formasAtivasCache;
     }
 
-    /** Cria a tabela na primeira vez e já deixa 4 formas básicas cadastradas. */
+    /** Cria a tabela na primeira vez e insere 4 formas básicas. */
     private static void garantirTabelaFormas(Connection con) throws SQLException {
         if (tabelaFormasPronta) {
             return;
@@ -709,18 +530,14 @@ public class TelaRecargas extends JPanel {
         tabelaFormasPronta = true;
     }
 
-    // =========================================================================
-    // AÇÕES: NOVA RECARGA
-    // Modal de recarga, gravação no banco (transação) e leitura do valor digitado.
-    // =========================================================================
+    // ===================== NOVA RECARGA =====================
 
-    /** Abre o formulário "Nova Recarga" (cartão, valor, forma de pagamento). */
     private void abrirModalNovaRecarga() {
-        if (Sessao.getLogado() == null) {
+        Funcionario logado = Sessao.getLogado();
+        if (logado == null) {
             erro(this, "Nenhum funcionário logado. Faça login novamente.");
             return;
         }
-
         List<String> formas = obterFormasAtivas();
         if (formas.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -730,51 +547,31 @@ public class TelaRecargas extends JPanel {
             return;
         }
 
-        JDialog modal = criarModal("Nova Recarga");
-        JPanel c = criarPainelModal();
-
-        JTextField txtCartao = criarCampoTexto();
-        JTextField txtValor = criarCampoTexto();
+        JDialog modal = novoModal("Nova Recarga");
+        JTextField txtCartao = campo();
+        JTextField txtValor = campo();
         JComboBox<String> cmbForma = new JComboBox<>(formas.toArray(new String[0]));
-        cmbForma.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        cmbForma.setFont(fonte(Font.PLAIN, 14));
         cmbForma.setPreferredSize(new Dimension(320, 36));
 
-        JLabel lblCreditos = new JLabel("= 0 créditos");
-        lblCreditos.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        lblCreditos.setForeground(new Color(125, 211, 252));
-
-        // Mostra, enquanto digita, quantos créditos o valor vai gerar
-        Runnable atualizarPreview = () -> {
+        JLabel lblCreditos = rotulo("= 0 créditos", Font.BOLD, 13, AZUL_CLARO);
+        txtValor.getDocument().addDocumentListener(aoMudar(() -> {
             BigDecimal v = lerValor(txtValor.getText());
-            BigDecimal cr = v == null ? null : v.multiply(BigDecimal.valueOf(CREDITOS_POR_REAL));
-            if (cr == null) {
+            if (v == null) {
                 lblCreditos.setText("= 0 créditos");
-            } else if (cr.stripTrailingZeros().scale() > 0) {
-                lblCreditos.setText("Use múltiplos de R$ 0,20 (para fechar créditos inteiros)");
-            } else {
-                lblCreditos.setText("= " + cr.longValue() + " créditos");
+                return;
             }
-        };
-        txtValor.getDocument().addDocumentListener(new AoMudar(atualizarPreview));
+            BigDecimal cr = v.multiply(BigDecimal.valueOf(CREDITOS_POR_REAL));
+            lblCreditos.setText(cr.stripTrailingZeros().scale() > 0
+                    ? "Use múltiplos de R$ 0,20 (para fechar créditos inteiros)"
+                    : "= " + cr.longValue() + " créditos");
+        }));
 
-        Funcionario logado = Sessao.getLogado();
-        JLabel lblFunc = new JLabel("Funcionário: " + logado.getNome() + " (" + logado.getId() + ")");
-        lblFunc.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        lblFunc.setForeground(TEXTO_SUAVE);
+        JLabel lblFunc = rotulo("Funcionário: " + logado.getNome() + " (" + logado.getId() + ")", Font.PLAIN, 12,
+                TEXTO_SUAVE);
 
-        int y = 0;
-        linha(c, criarTituloModal("Registrar Nova Recarga"), y++, 0);
-        linha(c, criarRotulo("ID do Cartão"), y++, 16);
-        linha(c, txtCartao, y++, 4);
-        linha(c, criarRotulo("Valor (R$)"), y++, 12);
-        linha(c, txtValor, y++, 4);
-        linha(c, lblCreditos, y++, 6);
-        linha(c, criarRotulo("Forma de Pagamento"), y++, 12);
-        linha(c, cmbForma, y++, 4);
-        linha(c, lblFunc, y++, 14);
-
-        JButton btnCancelar = criarBotao("Cancelar", false, 110);
-        JButton btnSalvar = criarBotao("Salvar Recarga", true, 150);
+        JButton btnCancelar = botao("Cancelar", false, 110);
+        JButton btnSalvar = botao("Salvar Recarga", true, 150);
         btnCancelar.addActionListener(e -> modal.dispose());
         btnSalvar.addActionListener(e -> {
             long idCartao;
@@ -791,44 +588,38 @@ public class TelaRecargas extends JPanel {
             }
             String forma = (String) cmbForma.getSelectedItem();
 
-            // salva em segundo plano: a janela não congela enquanto o banco responde
-            btnSalvar.setEnabled(false);
-            btnCancelar.setEnabled(false);
-            btnSalvar.setText("Salvando...");
-
-            async(() -> registrarRecarga(idCartao, valor, forma, logado.getId()),
-                    creditos -> {
-                        JOptionPane.showMessageDialog(modal,
-                                "Recarga registrada!\n" + MOEDA.format(valor) + " = " + creditos
-                                        + " créditos adicionados ao cartão " + String.format("%03d", idCartao) + ".",
-                                "Sucesso", JOptionPane.INFORMATION_MESSAGE);
-                        modal.dispose();
-                        carregar(true, false);
-                    },
-                    ex -> {
-                        btnSalvar.setEnabled(true);
-                        btnCancelar.setEnabled(true);
-                        btnSalvar.setText("Salvar Recarga");
-                        if (ex instanceof RecargaException) {
-                            erro(modal, ex.getMessage());
-                        } else {
-                            erro(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage());
-                        }
-                    });
+            bloquear(btnSalvar, btnCancelar, true, "Salvando...");
+            async(() -> registrarRecarga(idCartao, valor, forma, logado.getId()), creditos -> {
+                JOptionPane.showMessageDialog(modal,
+                        "Recarga registrada!\n" + MOEDA.format(valor) + " = " + creditos
+                                + " créditos adicionados ao cartão " + String.format("%03d", idCartao) + ".",
+                        "Sucesso", JOptionPane.INFORMATION_MESSAGE);
+                modal.dispose();
+                carregar(true, false);
+            }, ex -> {
+                bloquear(btnSalvar, btnCancelar, false, "Salvar Recarga");
+                erro(modal, ex instanceof RecargaException
+                        ? ex.getMessage()
+                        : "Erro ao salvar no banco de dados:\n" + ex.getMessage());
+            });
         });
 
-        linha(c, rodapeModal(btnCancelar, btnSalvar), y++, 20);
-        mostrarModal(modal, c);
+        mostrarModal(modal, painelModal(
+                rotulo("Registrar Nova Recarga", Font.BOLD, 17, Color.WHITE),
+                rotulo("ID do Cartão"), txtCartao,
+                rotulo("Valor (R$)"), txtValor,
+                lblCreditos,
+                rotulo("Forma de Pagamento"), cmbForma,
+                lblFunc,
+                rodape(btnCancelar, btnSalvar)));
     }
 
     /**
      * Grava a recarga e soma os créditos no cartão, na MESMA transação.
-     * idFuncionario = ID do funcionário logado, ou null no autoatendimento.
-     * Retorna quantos créditos foram adicionados.
+     * idFuncionario = null no autoatendimento.
      */
     private long registrarRecarga(long idCartao, BigDecimal valor, String forma, String idFuncionario)
             throws SQLException, RecargaException {
-
         BigDecimal creditosDec = valor.multiply(BigDecimal.valueOf(CREDITOS_POR_REAL));
         if (creditosDec.stripTrailingZeros().scale() > 0) {
             throw new RecargaException("O valor precisa gerar créditos inteiros.\n"
@@ -839,13 +630,13 @@ public class TelaRecargas extends JPanel {
         try (Connection con = conectar()) {
             con.setAutoCommit(false);
             try {
-                // 1) o cartão existe e está ativo?
                 try (PreparedStatement ps = con.prepareStatement(
                         "SELECT Ativo FROM `cartões` WHERE `ID_Cartão` = ? FOR UPDATE")) {
                     ps.setLong(1, idCartao);
                     try (ResultSet rs = ps.executeQuery()) {
                         if (!rs.next()) {
-                            throw new RecargaException("Cartão " + String.format("%03d", idCartao) + " não encontrado.");
+                            throw new RecargaException(
+                                    "Cartão " + String.format("%03d", idCartao) + " não encontrado.");
                         }
                         if (!rs.getBoolean("Ativo")) {
                             throw new RecargaException("Este cartão está inativo e não pode receber recargas.");
@@ -853,24 +644,20 @@ public class TelaRecargas extends JPanel {
                     }
                 }
 
-                // 2) registra a recarga
                 try (PreparedStatement ps = con.prepareStatement(
                         "INSERT INTO recargas (`ID_Cartão`, `ID_Funcionário`, Valor, Forma_Pagamento, Data_Hora) "
                                 + "VALUES (?, ?, ?, ?, NOW())")) {
                     ps.setLong(1, idCartao);
                     if (idFuncionario == null) {
-                        ps.setNull(2, java.sql.Types.VARCHAR); // autoatendimento: sem funcionário
+                        ps.setNull(2, Types.VARCHAR);
                     } else {
                         ps.setString(2, idFuncionario);
                     }
                     ps.setBigDecimal(3, valor);
                     ps.setString(4, forma);
-                    // Data_Hora = NOW() do servidor, já no fuso de Brasília (ver Conexao.FUSO_BANCO).
-                    // Usa o relógio do banco, e não o do PC, que pode estar adiantado/atrasado.
                     ps.executeUpdate();
                 }
 
-                // 3) soma os créditos no cartão
                 try (PreparedStatement ps = con.prepareStatement(
                         "UPDATE `cartões` SET Creditos = Creditos + ? WHERE `ID_Cartão` = ?")) {
                     ps.setLong(1, creditos);
@@ -885,11 +672,14 @@ public class TelaRecargas extends JPanel {
             }
         }
         Auditoria.registrar(idFuncionario == null ? "RECARGA_AUTOATENDIMENTO" : "RECARGA",
-                String.format("Cartão %03d | R$ %s | %s | +%d créditos", idCartao, valor.toPlainString(), forma, creditos));
+                String.format("Cartão %03d | R$ %s | %s | +%d créditos", idCartao, valor.toPlainString(), forma,
+                        creditos));
         return creditos;
     }
 
-    /** Converte "10", "10,50" ou "1.000,50" em BigDecimal (máx. 2 casas). Retorna null se inválido. */
+    /**
+     * "10", "10,50" ou "1.000,50" → BigDecimal (máx. 2 casas). Null se inválido.
+     */
     private static BigDecimal lerValor(String texto) {
         if (texto == null) {
             return null;
@@ -903,29 +693,22 @@ public class TelaRecargas extends JPanel {
         }
         try {
             BigDecimal v = new BigDecimal(t);
-            if (v.signum() <= 0 || v.scale() > 2) {
-                return null;
-            }
-            return v;
+            return (v.signum() <= 0 || v.scale() > 2) ? null : v;
         } catch (NumberFormatException ex) {
             return null;
         }
     }
 
-    // =========================================================================
-    // AÇÕES: FORMAS DE PAGAMENTO (Manager Master)
-    // Cadastrar, editar e excluir formas de pagamento.
-    // =========================================================================
+    // ===================== FORMAS DE PAGAMENTO =====================
 
-    /** Índice (no modelo) da forma selecionada, ou -1 depois de avisar que nada foi selecionado. */
     private int formaSelecionada(String tituloAviso) {
-        int linhaVisual = tabelaFormas.getSelectedRow();
-        if (linhaVisual < 0) {
+        int visual = tabFormas.getSelectedRow();
+        if (visual < 0) {
             JOptionPane.showMessageDialog(this, "Selecione uma forma de pagamento na tabela.",
                     tituloAviso, JOptionPane.INFORMATION_MESSAGE);
             return -1;
         }
-        return tabelaFormas.convertRowIndexToModel(linhaVisual);
+        return tabFormas.convertRowIndexToModel(visual);
     }
 
     private void editarFormaSelecionada() {
@@ -935,11 +718,9 @@ public class TelaRecargas extends JPanel {
         }
         long id = Long.parseLong(String.valueOf(modeloFormas.getValueAt(m, 0)));
         String nome = String.valueOf(modeloFormas.getValueAt(m, 1));
-        boolean ativa = "Ativa".equals(modeloFormas.getValueAt(m, 2));
-        abrirModalForma(id, nome, ativa);
+        abrirModalForma(id, nome, "Ativa".equals(modeloFormas.getValueAt(m, 2)));
     }
 
-    /** Exclui a forma selecionada. As recargas antigas guardam o nome da forma, então não há vínculo que impeça. */
     private void excluirFormaSelecionada() {
         int m = formaSelecionada("Excluir");
         if (m < 0) {
@@ -962,7 +743,7 @@ public class TelaRecargas extends JPanel {
         carregar(false, true);
     }
 
-    /** Modal de forma de pagamento. id = -1 cadastra uma forma nova; senão edita a existente. */
+    /** id = -1 cadastra; senão edita. */
     private void abrirModalForma(long id, String nomeAtual, boolean ativaAtual) {
         if (!Sessao.isManagerMaster()) {
             JOptionPane.showMessageDialog(this, "Apenas o Manager Master pode gerenciar formas de pagamento.",
@@ -970,34 +751,22 @@ public class TelaRecargas extends JPanel {
             return;
         }
         boolean edicao = id >= 0;
+        JDialog modal = novoModal(edicao ? "Editar Forma de Pagamento" : "Nova Forma de Pagamento");
 
-        JDialog modal = criarModal(edicao ? "Editar Forma de Pagamento" : "Nova Forma de Pagamento");
-        JPanel c = criarPainelModal();
-
-        JTextField txtNome = criarCampoTexto();
+        JTextField txtNome = campo();
         txtNome.setText(nomeAtual);
-
-        JCheckBox chkAtiva = new JCheckBox("Forma ativa (aparece na hora de recarregar)");
+        JCheckBox chkAtiva = new JCheckBox("Forma ativa (aparece na hora de recarregar)", ativaAtual);
         chkAtiva.setOpaque(false);
         chkAtiva.setForeground(Color.WHITE);
-        chkAtiva.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        chkAtiva.setSelected(ativaAtual);
+        chkAtiva.setFont(fonte(Font.PLAIN, 13));
         chkAtiva.setFocusPainted(false);
 
-        int y = 0;
-        linha(c, criarTituloModal(edicao ? "Editar Forma de Pagamento" : "Cadastrar Forma de Pagamento"), y++, 0);
-        linha(c, criarRotulo("Nome"), y++, 16);
-        linha(c, txtNome, y++, 4);
-        linha(c, chkAtiva, y++, 12);
-        if (edicao) {
-            JLabel aviso = new JLabel("<html>Renomear não altera recargas antigas: elas mantêm o nome usado na época.</html>");
-            aviso.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-            aviso.setForeground(TEXTO_SUAVE);
-            linha(c, aviso, y++, 10);
-        }
+        JLabel aviso = rotulo("<html>Renomear não altera recargas antigas: elas mantêm o nome usado na época.</html>",
+                Font.PLAIN, 12, TEXTO_SUAVE);
+        aviso.setVisible(edicao);
 
-        JButton btnCancelar = criarBotao("Cancelar", false, 110);
-        JButton btnSalvar = criarBotao("Salvar", true, 110);
+        JButton btnCancelar = botao("Cancelar", false, 110);
+        JButton btnSalvar = botao("Salvar", true, 110);
         btnCancelar.addActionListener(e -> modal.dispose());
         btnSalvar.addActionListener(e -> {
             String nome = txtNome.getText().trim();
@@ -1011,66 +780,53 @@ public class TelaRecargas extends JPanel {
             }
             boolean ativa = chkAtiva.isSelected();
 
-            btnSalvar.setEnabled(false);
-            btnCancelar.setEnabled(false);
-            btnSalvar.setText("Salvando...");
-
+            bloquear(btnSalvar, btnCancelar, true, "Salvando...");
             async(() -> {
-                        salvarForma(id, nome, ativa);
-                        return Boolean.TRUE;
-                    },
-                    ok -> {
-                        modal.dispose();
-                        carregar(false, true);
-                    },
-                    ex -> {
-                        btnSalvar.setEnabled(true);
-                        btnCancelar.setEnabled(true);
-                        btnSalvar.setText("Salvar");
-                        if (ex instanceof SQLException && ((SQLException) ex).getErrorCode() == 1062) {
-                            // chave duplicada (Nome é UNIQUE)
-                            erro(modal, "Já existe uma forma de pagamento com o nome \"" + nome + "\".");
-                        } else {
-                            erro(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage());
-                        }
-                    });
+                salvarForma(id, nome, ativa);
+                return Boolean.TRUE;
+            }, ok -> {
+                modal.dispose();
+                carregar(false, true);
+            }, ex -> {
+                bloquear(btnSalvar, btnCancelar, false, "Salvar");
+                if (ex instanceof SQLException && ((SQLException) ex).getErrorCode() == 1062) {
+                    erro(modal, "Já existe uma forma de pagamento com o nome \"" + nome + "\".");
+                } else {
+                    erro(modal, "Erro ao salvar no banco de dados:\n" + ex.getMessage());
+                }
+            });
         });
 
-        linha(c, rodapeModal(btnCancelar, btnSalvar), y++, 20);
-        mostrarModal(modal, c);
+        mostrarModal(modal, painelModal(
+                rotulo(edicao ? "Editar Forma de Pagamento" : "Cadastrar Forma de Pagamento", Font.BOLD, 17,
+                        Color.WHITE),
+                rotulo("Nome"), txtNome,
+                chkAtiva,
+                aviso,
+                rodape(btnCancelar, btnSalvar)));
     }
 
-    /** INSERT (id < 0) ou UPDATE da forma de pagamento. */
     private void salvarForma(long id, String nome, boolean ativa) throws SQLException {
         try (Connection con = conectar()) {
             garantirTabelaFormas(con);
-            if (id < 0) {
-                try (PreparedStatement ps = con.prepareStatement(
-                        "INSERT INTO formas_pagamento (Nome, Ativo) VALUES (?, ?)")) {
-                    ps.setString(1, nome);
-                    ps.setBoolean(2, ativa);
-                    ps.executeUpdate();
-                }
-            } else {
-                try (PreparedStatement ps = con.prepareStatement(
-                        "UPDATE formas_pagamento SET Nome = ?, Ativo = ? WHERE ID_Forma = ?")) {
-                    ps.setString(1, nome);
-                    ps.setBoolean(2, ativa);
+            String sql = id < 0
+                    ? "INSERT INTO formas_pagamento (Nome, Ativo) VALUES (?, ?)"
+                    : "UPDATE formas_pagamento SET Nome = ?, Ativo = ? WHERE ID_Forma = ?";
+            try (PreparedStatement ps = con.prepareStatement(sql)) {
+                ps.setString(1, nome);
+                ps.setBoolean(2, ativa);
+                if (id >= 0) {
                     ps.setLong(3, id);
-                    ps.executeUpdate();
                 }
+                ps.executeUpdate();
             }
         }
         Auditoria.registrar(id < 0 ? "CADASTRO_FORMA_PAGAMENTO" : "EDICAO_FORMA_PAGAMENTO",
                 nome + (ativa ? "" : " (inativa)"));
     }
 
-    // =========================================================================
-    // UTILITÁRIOS
-    // Conexão, filtro da busca, mensagens de erro e execução em segundo plano.
-    // =========================================================================
+    // ===================== UTILITÁRIOS =====================
 
-    /** Conexao.conectar() devolve null quando falha; aqui vira SQLException para a tela mostrar o erro. */
     private Connection conectar() throws SQLException {
         Connection con = Conexao.conectar();
         if (con == null) {
@@ -1079,23 +835,29 @@ public class TelaRecargas extends JPanel {
         return con;
     }
 
-    /** Filtra a tabela pelo texto digitado (ignora maiúsculas/minúsculas). */
     private void filtrar(TableRowSorter<DefaultTableModel> sorter, String texto) {
-        if (texto == null || texto.trim().isEmpty()) {
-            sorter.setRowFilter(null);
-        } else {
-            sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(texto.trim())));
-        }
+        sorter.setRowFilter(texto == null || texto.trim().isEmpty()
+                ? null
+                : RowFilter.regexFilter("(?i)" + Pattern.quote(texto.trim())));
         atualizarTotal();
     }
 
-    private void erro(Component pai, String msg) {
+    private static void erro(Component pai, String msg) {
         JOptionPane.showMessageDialog(pai, msg, "Atenção", JOptionPane.ERROR_MESSAGE);
     }
 
     /**
-     * Roda a tarefa numa thread de fundo e devolve o resultado (ou o erro) na thread da interface.
-     * Assim nenhuma consulta ao banco trava a tela.
+     * Desabilita (ou reabilita) os dois botões do modal e troca o texto do Salvar.
+     */
+    private static void bloquear(JButton salvar, JButton cancelar, boolean travar, String textoSalvar) {
+        salvar.setEnabled(!travar);
+        cancelar.setEnabled(!travar);
+        salvar.setText(textoSalvar);
+    }
+
+    /**
+     * Roda a tarefa em segundo plano e devolve o resultado (ou erro) na thread da
+     * interface.
      */
     private <T> void async(Callable<T> tarefa, Consumer<T> aoConcluir, Consumer<Exception> aoFalhar) {
         new SwingWorker<T, Void>() {
@@ -1118,14 +880,25 @@ public class TelaRecargas extends JPanel {
         }.execute();
     }
 
-    // =========================================================================
-    // COMPONENTES VISUAIS
-    // Fábricas dos elementos com o visual padrão do sistema (busca, botão, tabela, modais).
-    // =========================================================================
+    // ===================== COMPONENTES VISUAIS =====================
 
-    /** Campo de busca arredondado, com lupa e texto de exemplo quando está vazio. */
-    private JPanel criarBusca(String placeholder, Consumer<String> aoDigitar) {
-        JPanel painel = new JPanel(new BorderLayout(8, 0)) {
+    private static Font fonte(int estilo, int tamanho) {
+        return new Font("Segoe UI", estilo, tamanho);
+    }
+
+    private static JLabel rotulo(String texto) {
+        return rotulo(texto, Font.PLAIN, 13, TEXTO_SUAVE);
+    }
+
+    private static JLabel rotulo(String texto, int estilo, int tamanho, Color cor) {
+        JLabel l = new JLabel(texto);
+        l.setFont(fonte(estilo, tamanho));
+        l.setForeground(cor);
+        return l;
+    }
+
+    private static JPanel busca(String placeholder, Consumer<String> aoDigitar) {
+        JPanel p = new JPanel(new BorderLayout(8, 0)) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -1137,26 +910,20 @@ public class TelaRecargas extends JPanel {
                 g2.dispose();
             }
         };
-        painel.setOpaque(false);
-        painel.setPreferredSize(new Dimension(420, 38));
-        painel.setBorder(BorderFactory.createEmptyBorder(5, 12, 5, 12));
+        p.setOpaque(false);
+        p.setPreferredSize(new Dimension(420, 38));
+        p.setBorder(BorderFactory.createEmptyBorder(5, 12, 5, 12));
 
-        JLabel lupa = new JLabel("🔍");
-        lupa.setForeground(TEXTO_SUAVE);
-
-        // Campo com "placeholder" desenhado quando está vazio e sem foco
         JTextField txt = new JTextField() {
             @Override
             protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
                 if (getText().isEmpty() && !isFocusOwner()) {
                     Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                            RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                     g2.setColor(new Color(100, 116, 139));
                     g2.setFont(getFont());
-                    int y = (getHeight() + g2.getFontMetrics().getAscent() - g2.getFontMetrics().getDescent()) / 2;
-                    g2.drawString(placeholder, getInsets().left, y);
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.drawString(placeholder, getInsets().left, (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
                     g2.dispose();
                 }
             }
@@ -1164,7 +931,7 @@ public class TelaRecargas extends JPanel {
         txt.setOpaque(false);
         txt.setForeground(Color.WHITE);
         txt.setCaretColor(Color.WHITE);
-        txt.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        txt.setFont(fonte(Font.PLAIN, 13));
         txt.setBorder(null);
         txt.addFocusListener(new FocusAdapter() {
             @Override
@@ -1184,13 +951,12 @@ public class TelaRecargas extends JPanel {
             }
         });
 
-        painel.add(lupa, BorderLayout.WEST);
-        painel.add(txt, BorderLayout.CENTER);
-        return painel;
+        p.add(rotulo("🔍"), BorderLayout.WEST);
+        p.add(txt, BorderLayout.CENTER);
+        return p;
     }
 
-    /** Botão arredondado: azul (primário) ou azul-escuro (secundário). */
-    private JButton criarBotao(String texto, boolean primario, int largura) {
+    private static JButton botao(String texto, boolean primario, int largura) {
         JButton b = new JButton(texto) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -1203,7 +969,7 @@ public class TelaRecargas extends JPanel {
             }
         };
         b.setPreferredSize(new Dimension(largura, 38));
-        b.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        b.setFont(fonte(Font.BOLD, 13));
         b.setForeground(Color.WHITE);
         b.setFocusPainted(false);
         b.setContentAreaFilled(false);
@@ -1212,8 +978,7 @@ public class TelaRecargas extends JPanel {
         return b;
     }
 
-    /** Modelo de tabela em que nenhuma célula pode ser editada diretamente. */
-    private DefaultTableModel modeloSomenteLeitura(String... colunas) {
+    private static DefaultTableModel somenteLeitura(String... colunas) {
         return new DefaultTableModel(colunas, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -1222,21 +987,22 @@ public class TelaRecargas extends JPanel {
         };
     }
 
-    /** Tabela escura com o texto centralizado. */
-    private JTable criarTabela(DefaultTableModel modelo) {
+    private static JTable tabela(DefaultTableModel modelo) {
         JTable t = new JTable(modelo);
         t.setBackground(CARD);
         t.setForeground(Color.WHITE);
         t.setGridColor(new Color(18, 35, 60));
         t.setRowHeight(42);
-        t.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        t.setFont(fonte(Font.PLAIN, 13));
         t.setSelectionBackground(new Color(23, 55, 94));
         t.setSelectionForeground(Color.WHITE);
-        t.getTableHeader().setReorderingAllowed(false);
-        t.getTableHeader().setBackground(CARD);
-        t.getTableHeader().setForeground(TEXTO_SUAVE);
-        t.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
-        t.getTableHeader().setPreferredSize(new Dimension(0, 40));
+
+        JTableHeader h = t.getTableHeader();
+        h.setReorderingAllowed(false);
+        h.setBackground(CARD);
+        h.setForeground(TEXTO_SUAVE);
+        h.setFont(fonte(Font.BOLD, 12));
+        h.setPreferredSize(new Dimension(0, 40));
 
         DefaultTableCellRenderer centro = new DefaultTableCellRenderer();
         centro.setHorizontalAlignment(SwingConstants.CENTER);
@@ -1245,8 +1011,8 @@ public class TelaRecargas extends JPanel {
         return t;
     }
 
-    /** Card com duas "páginas": a tabela de verdade e o ghost loading. */
-    private JPanel criarCardTabela(JTable tabela, GhostPanel ghost) {
+    /** Card com duas "páginas": a tabela e o ghost loading. */
+    private static JPanel cardTabela(JTable t, GhostPanel ghost) {
         JPanel card = new JPanel(new CardLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -1262,7 +1028,7 @@ public class TelaRecargas extends JPanel {
         card.setOpaque(false);
         card.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 
-        JScrollPane scroll = new JScrollPane(tabela);
+        JScrollPane scroll = new JScrollPane(t);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.setBorder(null);
@@ -1272,20 +1038,50 @@ public class TelaRecargas extends JPanel {
         return card;
     }
 
-    // --- Janelas modais (formulários) ---
+    private static JTextField campo() {
+        JTextField t = new JTextField();
+        t.setPreferredSize(new Dimension(320, 36));
+        t.setBackground(CAMPO);
+        t.setForeground(Color.WHITE);
+        t.setCaretColor(Color.WHITE);
+        t.setFont(fonte(Font.PLAIN, 14));
+        t.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(30, 48, 80)),
+                BorderFactory.createEmptyBorder(4, 10, 4, 10)));
+        return t;
+    }
 
-    private JDialog criarModal(String titulo) {
+    private JDialog novoModal(String titulo) {
         JDialog d = new JDialog(SwingUtilities.getWindowAncestor(this), titulo,
                 Dialog.ModalityType.APPLICATION_MODAL);
         d.setResizable(false);
         return d;
     }
 
-    private JPanel criarPainelModal() {
+    /** Empilha os componentes do formulário, um embaixo do outro. */
+    private static JPanel painelModal(Component... itens) {
         JPanel p = new JPanel(new GridBagLayout());
-        p.setBackground(new Color(10, 22, 40));
+        p.setBackground(CARD);
         p.setBorder(BorderFactory.createEmptyBorder(22, 26, 22, 26));
+        GridBagConstraints g = new GridBagConstraints();
+        g.gridx = 0;
+        g.weightx = 1;
+        g.fill = GridBagConstraints.HORIZONTAL;
+        for (int i = 0; i < itens.length; i++) {
+            g.gridy = i;
+            g.insets = new Insets(i == 0 ? 0 : 10, 0, 0, 0);
+            p.add(itens[i], g);
+        }
         return p;
+    }
+
+    private static JPanel rodape(JButton... botoes) {
+        JPanel r = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        r.setOpaque(false);
+        for (JButton b : botoes) {
+            r.add(b);
+        }
+        return r;
     }
 
     private void mostrarModal(JDialog modal, JPanel conteudo) {
@@ -1295,67 +1091,34 @@ public class TelaRecargas extends JPanel {
         modal.setVisible(true);
     }
 
-    /** Adiciona um componente numa nova linha do formulário, com espaço "topo" acima. */
-    private void linha(JPanel p, Component c, int y, int topo) {
-        GridBagConstraints g = new GridBagConstraints();
-        g.gridx = 0;
-        g.gridy = y;
-        g.weightx = 1;
-        g.fill = GridBagConstraints.HORIZONTAL;
-        g.insets = new Insets(topo, 0, 0, 0);
-        p.add(c, g);
+    /** Listener que chama o Runnable em qualquer mudança no texto. */
+    private static DocumentListener aoMudar(Runnable r) {
+        return new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                r.run();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                r.run();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                r.run();
+            }
+        };
     }
 
-    /** Rodapé do modal com os botões alinhados à direita. */
-    private JPanel rodapeModal(JButton... botoes) {
-        JPanel rodape = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        rodape.setOpaque(false);
-        for (JButton b : botoes) {
-            rodape.add(b);
-        }
-        return rodape;
-    }
+    // ===================== CLASSES INTERNAS =====================
 
-    private JLabel criarTituloModal(String texto) {
-        JLabel l = new JLabel(texto);
-        l.setForeground(Color.WHITE);
-        l.setFont(new Font("Segoe UI", Font.BOLD, 17));
-        return l;
-    }
-
-    private JLabel criarRotulo(String texto) {
-        JLabel l = new JLabel(texto);
-        l.setForeground(TEXTO_SUAVE);
-        l.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        return l;
-    }
-
-    private JTextField criarCampoTexto() {
-        JTextField t = new JTextField();
-        t.setPreferredSize(new Dimension(320, 36));
-        t.setBackground(CAMPO);
-        t.setForeground(Color.WHITE);
-        t.setCaretColor(Color.WHITE);
-        t.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        t.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(30, 48, 80)),
-                BorderFactory.createEmptyBorder(4, 10, 4, 10)));
-        return t;
-    }
-
-    // =========================================================================
-    // CLASSES INTERNAS
-    // Tipos de dados usados pela tela/autoatendimento e o componente de ghost loading.
-    // =========================================================================
-
-    /** Erro de regra de negócio (mensagem já pronta para mostrar ao usuário). */
     public static class RecargaException extends Exception {
         RecargaException(String msg) {
             super(msg);
         }
     }
 
-    /** Dados de leitura de um cartão (usado pelo autoatendimento para mostrar saldo e nome). */
     public static class CartaoInfo {
         public final long id;
         public final String nome;
@@ -1370,24 +1133,21 @@ public class TelaRecargas extends JPanel {
         }
     }
 
-    /** Resultado de uma carga: linhas já prontas para as tabelas + o erro de cada parte (se houver). */
     private static class DadosCarga {
         List<Object[]> recargas;
         List<Object[]> formas;
-        List<String> formasAtivas; // null = não conseguiu carregar
+        List<String> formasAtivas;
         String erroRecargas;
         String erroFormas;
     }
 
     /**
-     * Ghost loading: linhas "fantasma" cinza com um brilho que passa da esquerda para a direita,
-     * imitando a tabela enquanto os dados ainda estão chegando.
+     * Ghost loading: linhas cinza com um brilho que passa da esquerda para a
+     * direita.
      */
     private static class GhostPanel extends JPanel {
-        private static final Color BASE = new Color(20, 36, 60);
-        private static final Color BRILHO = new Color(38, 64, 102);
-        private static final int ALTURA_CABECALHO = 40;
-        private static final int ALTURA_LINHA = 42;
+        private static final Color BASE = new Color(20, 36, 60), BRILHO = new Color(38, 64, 102);
+        private static final int CAB = 40, LINHA = 42;
 
         private final int colunas;
         private float fase = -0.3f;
@@ -1421,65 +1181,34 @@ public class TelaRecargas extends JPanel {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-            int w = getWidth();
-            int h = getHeight();
+            int w = getWidth(), h = getHeight();
             int celula = Math.max(1, w / colunas);
-            int linhas = Math.max(1, (h - ALTURA_CABECALHO) / ALTURA_LINHA);
+            int linhas = Math.max(1, (h - CAB) / LINHA);
 
-            // linhas divisórias (iguais às da tabela de verdade)
             g2.setColor(new Color(18, 35, 60));
-            g2.drawLine(0, ALTURA_CABECALHO, w, ALTURA_CABECALHO);
+            g2.drawLine(0, CAB, w, CAB);
             for (int r = 0; r < linhas; r++) {
-                int y = ALTURA_CABECALHO + (r + 1) * ALTURA_LINHA - 1;
+                int y = CAB + (r + 1) * LINHA - 1;
                 g2.drawLine(0, y, w, y);
             }
 
-            // brilho que atravessa todas as barras de uma vez
-            float cx = fase * w;
-            float meia = Math.max(180f, w * 0.22f);
+            float cx = fase * w, meia = Math.max(180f, w * 0.22f);
             g2.setPaint(new LinearGradientPaint(
                     new Point2D.Float(cx - meia, 0), new Point2D.Float(cx + meia, 0),
                     new float[] { 0f, 0.5f, 1f }, new Color[] { BASE, BRILHO, BASE }));
 
-            // cabeçalho
             for (int c = 0; c < colunas; c++) {
                 int bw = (int) (celula * 0.34);
-                g2.fillRoundRect(c * celula + (celula - bw) / 2, (ALTURA_CABECALHO - 10) / 2, bw, 10, 8, 8);
+                g2.fillRoundRect(c * celula + (celula - bw) / 2, (CAB - 10) / 2, bw, 10, 8, 8);
             }
-
-            // linhas (larguras variadas para parecer conteúdo de verdade)
             for (int r = 0; r < linhas; r++) {
-                int y = ALTURA_CABECALHO + r * ALTURA_LINHA + (ALTURA_LINHA - 14) / 2;
+                int y = CAB + r * LINHA + (LINHA - 14) / 2;
                 for (int c = 0; c < colunas; c++) {
                     int bw = (int) (celula * (0.30 + ((r * 7 + c * 13) % 5) * 0.07));
                     g2.fillRoundRect(c * celula + (celula - bw) / 2, y, bw, 14, 10, 10);
                 }
             }
             g2.dispose();
-        }
-    }
-
-    /** Atalho para rodar um Runnable quando o texto de um campo muda. */
-    private static class AoMudar implements DocumentListener {
-        private final Runnable acao;
-
-        AoMudar(Runnable acao) {
-            this.acao = acao;
-        }
-
-        @Override
-        public void insertUpdate(DocumentEvent e) {
-            acao.run();
-        }
-
-        @Override
-        public void removeUpdate(DocumentEvent e) {
-            acao.run();
-        }
-
-        @Override
-        public void changedUpdate(DocumentEvent e) {
-            acao.run();
         }
     }
 }
