@@ -31,7 +31,6 @@ import java.util.concurrent.LinkedBlockingQueue;
  *
  * O close() não derruba a conexão: ele a devolve ao pool.
  *
- * As credenciais ficam no arquivo .env (veja .env.example), fora do código.
  */
 public class Conexao {
 
