@@ -1,86 +1,73 @@
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 /**
- * Guarda os funcionários em memória enquanto o programa está aberto.
- *
- * É estático de propósito: a tela de login e a tela principal (App) são
- * recriadas a cada "Sair"/login, então os funcionários cadastrados precisam
- * continuar existindo entre elas.
- *
- * O Manager Master é fixo (admin / 1234) e sempre existe.
+ * Consultas de funcionários usadas fora da tela de login (ex.: saída do autoatendimento).
+ * Toda a gestão de funcionários fica no MySQL (tabelas funcionários + Seguranca_Senhas).
  */
 public final class Repositoriofuncionarios {
-
-    public static final String MASTER_USUARIO = "admin";
-    private static final String MASTER_SENHA = "1234";
-
-    private static final List<Funcionario> FUNCIONARIOS = new ArrayList<>();
-    private static int proximoId = 2; // o 001 é o Manager Master
-
-    static {
-        FUNCIONARIOS.add(new Funcionario(
-                "001", "Manager Master", "", "", "",
-                "Manager Master", MASTER_USUARIO, MASTER_SENHA,
-                true, true, true));
-    }
 
     private Repositoriofuncionarios() {
     }
 
-    public static List<Funcionario> listar() {
-        return Collections.unmodifiableList(FUNCIONARIOS);
-    }
+    /**
+     * Confere usuário e senha no banco.
+     *
+     * NÃO verifica se o funcionário está ativo nem se tem permissão de administrador:
+     * quem chama decide o que fazer com o resultado.
+     *
+     * @return o funcionário, se usuário e senha conferem;
+     *         null se o usuário não existe, não tem senha configurada ou a senha está errada.
+     * @throws SQLException se o banco não pôde ser consultado.
+     */
+    public static Funcionario autenticar(String usuario, String senha) throws SQLException {
+        String sql = "SELECT f.ID_Funcionário, f.Nome_Completo, f.CPF, f.Telefone, f.Email, "
+                + "f.Cargo, f.Usuário, f.Senha, f.Permissão_ADM, f.Ativo, s.Salt "
+                + "FROM funcionários f "
+                + "LEFT JOIN Seguranca_Senhas s ON f.Usuário = s.Usuario "
+                + "WHERE f.Usuário = ?";
 
-    public static String gerarProximoId() {
-        return String.format("%03d", proximoId++);
-    }
+        try (Connection con = conectar();
+                PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, usuario);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
 
-    public static void adicionar(Funcionario f) {
-        FUNCIONARIOS.add(f);
-    }
+                String salt = rs.getString("Salt");
+                String hash = rs.getString("Senha");
+                if (salt == null || salt.isEmpty() || hash == null || hash.isEmpty()) {
+                    return null; // sem senha configurada
+                }
 
-    public static Funcionario buscarPorId(String id) {
-        for (Funcionario f : FUNCIONARIOS) {
-            if (f.getId().equals(id)) {
-                return f;
+                Funcionario f = new Funcionario(
+                        String.format("%03d", rs.getLong("ID_Funcionário")),
+                        rs.getString("Nome_Completo"),
+                        rs.getString("CPF"),
+                        rs.getString("Telefone"),
+                        rs.getString("Email"),
+                        rs.getString("Cargo"),
+                        rs.getString("Usuário"),
+                        salt,
+                        hash,
+                        rs.getBoolean("Permissão_ADM"),
+                        rs.getBoolean("Ativo"),
+                        false);
+
+                return f.senhaConfere(senha) ? f : null;
             }
         }
-        return null;
     }
 
-    public static Funcionario buscarPorUsuario(String usuario) {
-        for (Funcionario f : FUNCIONARIOS) {
-            if (f.getUsuario().equalsIgnoreCase(usuario)) {
-                return f;
-            }
+    /** Conexao.conectar() devolve null quando falha; aqui vira exceção para quem chamou tratar. */
+    private static Connection conectar() throws SQLException {
+        Connection con = Conexao.conectar();
+        if (con == null) {
+            throw new SQLException("Não foi possível conectar ao banco de dados.");
         }
-        return null;
-    }
-
-    /** Usuário já usado por OUTRO funcionário (ignorarId = quem está sendo editado, ou null). */
-    public static boolean usuarioEmUso(String usuario, String ignorarId) {
-        Funcionario f = buscarPorUsuario(usuario);
-        return f != null && !f.getId().equals(ignorarId);
-    }
-
-    /** CPF já usado por OUTRO funcionário. */
-    public static boolean cpfEmUso(String cpf, String ignorarId) {
-        for (Funcionario f : FUNCIONARIOS) {
-            if (!f.getId().equals(ignorarId) && !f.getCpf().isEmpty() && f.getCpf().equals(cpf)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** Retorna o funcionário se usuário e senha conferem; senão null. (Não olha o status.) */
-    public static Funcionario autenticar(String usuario, String senha) {
-        Funcionario f = buscarPorUsuario(usuario);
-        if (f != null && f.senhaConfere(senha)) {
-            return f;
-        }
-        return null;
+        return con;
     }
 }

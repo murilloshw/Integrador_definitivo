@@ -3,8 +3,8 @@ import java.awt.Color;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.net.URL;
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
@@ -14,20 +14,54 @@ import javax.swing.JLayeredPane;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
+import javax.swing.Timer;
 
+/**
+ * Janela principal do sistema (aberta depois do login).
+ *
+ * Layout: uma barra lateral fixa à esquerda (70px) com os botões de navegação e,
+ * à direita, a área onde fica a tela escolhida. Todas as telas são criadas uma vez
+ * só e ficam empilhadas; trocar de tela é apenas esconder umas e mostrar outra.
+ *
+ * O autoatendimento fica numa camada acima de tudo (inclusive da barra lateral).
+ */
 public class App extends JFrame {
 
+    // =========================================================================
+    // CONSTANTES E CAMPOS
+    // =========================================================================
+
+    /** De quanto em quanto tempo a tela aberta é atualizada com os dados do banco. */
+    private static final int INTERVALO_ATUALIZACAO_MS = 3000;
+
+    /** Largura da barra lateral (e altura de cada botão dela). */
+    private static final int LARGURA_SIDEBAR = 70;
+
+    private TelaDashboard telaDashboard;
     private TelaClientes telaClientes;
     private TelaCartao telaCartao;
     private TelaMaquinas telaMaquinas;
     private TelaFuncionarios telaFuncionarios;
-    private TelaRecargas telaRecargas; // Declarada a tela de recargas
-    private JPanel conteudoCentralPadrao;
+    private TelaRecargas telaRecargas;
+    private TelaPremios telaPremios;
+    private TelaPartidas telaPartidas;
+    private TelaBiblioteca telaBiblioteca;
+    private TelaLog telaLog;
+    private TelaAutoatendimento telaAutoatendimento;
+
+    /** Todas as telas que ocupam a área à direita da barra lateral. */
+    private JPanel[] telas;
+
+    private Timer timerAtualizacao;
+
+    // =========================================================================
+    // CONSTRUTOR
+    // Monta a janela em tela cheia, cria as telas, a barra lateral e o timer.
+    // =========================================================================
 
     public App() {
         setTitle("Sistema Arcade");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-
         setUndecorated(true);
 
         GraphicsDevice gd = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
@@ -39,68 +73,104 @@ public class App extends JFrame {
 
         setIconImage(carregarIconeJanela());
 
-        addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    System.exit(0);
-                }
-            }
-        });
-        setFocusable(true);
+        // ESC pergunta se quer sair; no autoatendimento pede login de administrador (ver SairComEsc)
+        SairComEsc.instalar();
 
         JLayeredPane layeredPane = new JLayeredPane();
         layeredPane.setLayout(null);
         setContentPane(layeredPane);
 
-        int larguraTela = getWidth();
-        int alturaTela = getHeight();
+        criarTelas(layeredPane);
 
-        // Painel Central Padrão
-        conteudoCentralPadrao = new JPanel();
-        conteudoCentralPadrao.setBackground(new Color(2, 12, 27));
-        conteudoCentralPadrao.setBounds(70, 0, larguraTela - 70, alturaTela);
-        layeredPane.add(conteudoCentralPadrao, JLayeredPane.DEFAULT_LAYER);
+        JPanel sidebar = criarSidebar(layeredPane);
 
-        // Instância da Tela de Clientes
+        // Ao redimensionar a janela, tudo acompanha o novo tamanho
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                int w = getWidth();
+                int h = getHeight();
+                sidebar.setBounds(0, 0, LARGURA_SIDEBAR, h);
+                posicionarTelas(w, h);
+            }
+        });
+
+        // Tempo real: a tela aberta busca no banco as alterações feitas em outros
+        // lugares (recargas no balcão, no autoatendimento ou em outra máquina).
+        timerAtualizacao = new Timer(INTERVALO_ATUALIZACAO_MS, e -> atualizarTelaVisivel());
+        timerAtualizacao.start();
+    }
+
+    // =========================================================================
+    // CRIAÇÃO DAS TELAS
+    // =========================================================================
+
+    /** Cria todas as telas, deixa só o Início visível e as adiciona à janela. */
+    private void criarTelas(JLayeredPane layeredPane) {
+        telaDashboard = new TelaDashboard();
         telaClientes = new TelaClientes();
-        telaClientes.setBounds(70, 0, larguraTela - 70, alturaTela);
-        telaClientes.setVisible(false);
-        layeredPane.add(telaClientes, JLayeredPane.DEFAULT_LAYER);
-
-        // Instância da Tela de Cartões
-        telaCartao = new TelaCartao(telaClientes);
-        telaCartao.setBounds(70, 0, larguraTela - 70, alturaTela);
-        telaCartao.setVisible(false);
-        layeredPane.add(telaCartao, JLayeredPane.DEFAULT_LAYER);
-
-        // Instância da Tela de Máquinas
+        telaCartao = new TelaCartao(telaClientes); // usa a tela de clientes para listar os nomes
         telaMaquinas = new TelaMaquinas();
-        telaMaquinas.setBounds(70, 0, larguraTela - 70, alturaTela);
-        telaMaquinas.setVisible(false);
-        layeredPane.add(telaMaquinas, JLayeredPane.DEFAULT_LAYER);
-
-        // Instância da Tela de Funcionários
         telaFuncionarios = new TelaFuncionarios();
-        telaFuncionarios.setBounds(70, 0, larguraTela - 70, alturaTela);
-        telaFuncionarios.setVisible(false);
-        layeredPane.add(telaFuncionarios, JLayeredPane.DEFAULT_LAYER);
-
-        // Instância da Tela de Recargas (Adicionada)
         telaRecargas = new TelaRecargas();
-        telaRecargas.setBounds(70, 0, larguraTela - 70, alturaTela);
-        telaRecargas.setVisible(false);
-        layeredPane.add(telaRecargas, JLayeredPane.DEFAULT_LAYER);
+        telaPremios = new TelaPremios();
+        telaPartidas = new TelaPartidas();
+        telaBiblioteca = new TelaBiblioteca();
+        telaLog = new TelaLog();
 
-        // Sidebar Fixa
+        telas = new JPanel[] { telaDashboard, telaClientes, telaCartao, telaMaquinas, telaFuncionarios,
+                telaRecargas, telaPremios, telaPartidas, telaBiblioteca, telaLog };
+
+        for (JPanel tela : telas) {
+            tela.setVisible(tela == telaDashboard);
+            layeredPane.add(tela, JLayeredPane.DEFAULT_LAYER);
+        }
+
+        // Autoatendimento: quando um administrador confirma a saída, a tela é fechada
+        telaAutoatendimento = new TelaAutoatendimento(telaRecargas, this::fecharAutoatendimento);
+        telaAutoatendimento.setVisible(false);
+        layeredPane.add(telaAutoatendimento, JLayeredPane.POPUP_LAYER);
+
+        posicionarTelas(getWidth(), getHeight());
+
+        // Botão "Autoatendimento" da tela de Recargas: só funcionários com
+        // permissão administrativa podem abrir (o mesmo vale para sair dele).
+        telaRecargas.setAcaoAutoatendimento(() -> {
+            if (!Sessao.isManagerMaster()) {
+                JOptionPane.showMessageDialog(this,
+                        "Apenas funcionários com permissão administrativa podem abrir o autoatendimento.",
+                        "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            abrirAutoatendimento();
+        });
+    }
+
+    /** Telas normais ficam à direita da barra lateral; o autoatendimento ocupa a janela inteira. */
+    private void posicionarTelas(int w, int h) {
+        for (JPanel tela : telas) {
+            tela.setBounds(LARGURA_SIDEBAR, 0, w - LARGURA_SIDEBAR, h);
+        }
+        if (telaAutoatendimento != null) {
+            telaAutoatendimento.setBounds(0, 0, w, h);
+        }
+    }
+
+    // =========================================================================
+    // BARRA LATERAL (MENU)
+    // Logo no topo e um botão expansível (PainelExtensor) para cada tela.
+    // Funcionários só aparece para administradores; Biblioteca só para bibliotecários.
+    // =========================================================================
+
+    private JPanel criarSidebar(JLayeredPane layeredPane) {
         JPanel sidebar = new JPanel();
         sidebar.setBackground(new Color(24, 75, 150));
         sidebar.setLayout(null);
-        sidebar.setBounds(0, 0, 70, alturaTela);
+        sidebar.setBounds(0, 0, LARGURA_SIDEBAR, getHeight());
         layeredPane.add(sidebar, JLayeredPane.DEFAULT_LAYER);
 
         JPanel logo = criarLogo();
-        logo.setBounds(0, 0, 70, 70);
+        logo.setBounds(0, 0, LARGURA_SIDEBAR, LARGURA_SIDEBAR);
         sidebar.add(logo);
 
         String[][] botoesInfo = {
@@ -112,86 +182,167 @@ public class App extends JFrame {
                 { "Recargas", "botao recarga.png" },
                 { "Prêmios", "botao premio.png" },
                 { "Funcionários", "botao funcionario.png" },
+                { "Biblioteca", "botao biblioteca.png" },
+                { "Log", "botao log.png" },
                 { "Sair", "botao saida.png" }
         };
 
-        int yAtual = 70;
+        int yAtual = LARGURA_SIDEBAR;
         for (String[] btn : botoesInfo) {
             String texto = btn[0];
             String imagem = btn[1];
 
-            if (texto.equals("Funcionários") && !Sessao.isManagerMaster()) {
+            if ((texto.equals("Funcionários") || texto.equals("Log")) && !Sessao.isManagerMaster()) {
+                continue;
+            }
+            if (texto.equals("Biblioteca") && !Sessao.isBibliotecario()) {
                 continue;
             }
 
-            PainelExtensor botaoExtensivel = new PainelExtensor(texto, imagem, yAtual, 70, 180);
-
-            // Ação ao clicar no botão
-            botaoExtensivel.setAcaoClique(() -> {
-
-                if (texto.equalsIgnoreCase("Clientes")) {
-                    mostrarTela(telaClientes);
-                } else if (texto.equalsIgnoreCase("Cartões")) {
-                    telaCartao.atualizarNomesClientes();
-                    mostrarTela(telaCartao);
-                } else if (texto.equalsIgnoreCase("Máquinas")) {
-                    mostrarTela(telaMaquinas);
-                } else if (texto.equalsIgnoreCase("Recargas")) { // Redirecionamento configurado
-                    telaRecargas.carregarDadosRecargas();
-                    System.out.println("Clicou em recargas!");
-                    mostrarTela(telaRecargas);
-                } else if (texto.equalsIgnoreCase("Funcionários")) {
-                    if (!Sessao.isManagerMaster()) {
-                        JOptionPane.showMessageDialog(this,
-                                "Apenas o Manager Master pode acessar Funcionários.",
-                                "Acesso negado", JOptionPane.WARNING_MESSAGE);
-                        return;
-                    }
-                    mostrarTela(telaFuncionarios);
-                } else if (texto.equalsIgnoreCase("Início")) {
-                    mostrarTela(null);
-                } else if (texto.equalsIgnoreCase("Sair")) {
-                    Sessao.encerrar();
-                    GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().setFullScreenWindow(null);
-                    dispose();
-                    new TelaLogin();
-                }
-            });
-
-            layeredPane.add(botaoExtensivel, JLayeredPane.POPUP_LAYER);
-            yAtual += 70;
+            PainelExtensor botao = new PainelExtensor(texto, imagem, yAtual, LARGURA_SIDEBAR, 180);
+            botao.setAcaoClique(() -> aoClicarMenu(texto));
+            layeredPane.add(botao, JLayeredPane.POPUP_LAYER);
+            yAtual += LARGURA_SIDEBAR;
         }
-
-        addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
-                int w = getWidth();
-                int h = getHeight();
-
-                sidebar.setBounds(0, 0, 70, h);
-                conteudoCentralPadrao.setBounds(70, 0, w - 70, h);
-                telaClientes.setBounds(70, 0, w - 70, h);
-                telaCartao.setBounds(70, 0, w - 70, h);
-                telaMaquinas.setBounds(70, 0, w - 70, h);
-                telaFuncionarios.setBounds(70, 0, w - 70, h);
-                telaRecargas.setBounds(70, 0, w - 70, h); // Redimensionamento adicionado
-            }
-        });
+        return sidebar;
     }
 
- private void mostrarTela(JPanel alvo) {
-    telaClientes.setVisible(alvo == telaClientes);
-    telaCartao.setVisible(alvo == telaCartao);
-    telaMaquinas.setVisible(alvo == telaMaquinas);
-    telaFuncionarios.setVisible(alvo == telaFuncionarios);
-    telaRecargas.setVisible(alvo == telaRecargas);
-    conteudoCentralPadrao.setVisible(alvo == null);
+    /** O que cada botão do menu faz: recarrega os dados da tela (quando preciso) e a mostra. */
+    private void aoClicarMenu(String texto) {
+        switch (texto) {
+            case "Início":
+                telaDashboard.recarregar();
+                mostrarTela(telaDashboard);
+                break;
+            case "Clientes":
+                mostrarTela(telaClientes);
+                break;
+            case "Cartões":
+                telaCartao.atualizarNomesClientes();
+                telaCartao.recarregar();
+                mostrarTela(telaCartao);
+                break;
+            case "Partidas":
+                telaPartidas.recarregar();
+                mostrarTela(telaPartidas);
+                break;
+            case "Máquinas":
+                mostrarTela(telaMaquinas);
+                break;
+            case "Recargas":
+                telaRecargas.carregarDadosRecargas();
+                mostrarTela(telaRecargas);
+                break;
+            case "Prêmios":
+                telaPremios.recarregar();
+                mostrarTela(telaPremios);
+                break;
+            case "Funcionários":
+                if (!Sessao.isManagerMaster()) {
+                    JOptionPane.showMessageDialog(this, "Apenas o Manager Master pode acessar Funcionários.",
+                            "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                telaFuncionarios.recarregar();
+                mostrarTela(telaFuncionarios);
+                break;
+            case "Biblioteca":
+                if (!Sessao.isBibliotecario()) {
+                    JOptionPane.showMessageDialog(this,
+                            "Apenas funcionários com cargo bibliotecário podem acessar a Biblioteca.",
+                            "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                telaBiblioteca.recarregar();
+                mostrarTela(telaBiblioteca);
+                break;
+            case "Log":
+                if (!Sessao.isManagerMaster()) {
+                    JOptionPane.showMessageDialog(this, "Apenas administradores podem ver o log do sistema.",
+                            "Acesso negado", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                telaLog.recarregar();
+                mostrarTela(telaLog);
+                break;
+            case "Sair":
+                sair();
+                break;
+        }
+    }
 
-    // Força o contentor a atualizar e redesenhar os componentes visíveis
-    getContentPane().revalidate();
-    getContentPane().repaint();
-}
+    // =========================================================================
+    // NAVEGAÇÃO E ATUALIZAÇÃO
+    // =========================================================================
 
+    /** Mostra só a tela escolhida e esconde as outras. */
+    private void mostrarTela(JPanel alvo) {
+        for (JPanel tela : telas) {
+            tela.setVisible(tela == alvo);
+        }
+        getContentPane().revalidate();
+        getContentPane().repaint();
+    }
+
+    /**
+     * Chamado pelo timer: atualiza só a tela que está aberta, e nada enquanto o
+     * autoatendimento estiver na frente.
+     */
+    private void atualizarTelaVisivel() {
+        if (telaAutoatendimento.isVisible()) {
+            return;
+        }
+        if (telaDashboard.isVisible()) {
+            telaDashboard.atualizarSilenciosamente();
+        } else if (telaCartao.isVisible()) {
+            telaCartao.atualizarSilenciosamente();
+        } else if (telaRecargas.isVisible()) {
+            telaRecargas.atualizarSilenciosamente();
+        } else if (telaLog.isVisible()) {
+            telaLog.atualizarSilenciosamente();
+        }
+    }
+
+    /** Sair do sistema: encerra a sessão e volta para a tela de login. */
+    private void sair() {
+        timerAtualizacao.stop();
+        Auditoria.registrar("LOGOUT", null); // antes de encerrar, para saber quem saiu
+        Sessao.encerrar();
+        SairComEsc.desviarPara(null); // ESC volta a perguntar "Deseja sair?"
+        GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().setFullScreenWindow(null);
+        dispose();
+        new TelaLogin();
+    }
+
+    // =========================================================================
+    // AUTOATENDIMENTO
+    // =========================================================================
+
+    /** Mostra o autoatendimento do cliente por cima de todo o sistema. */
+    private void abrirAutoatendimento() {
+        telaAutoatendimento.setBounds(0, 0, getWidth(), getHeight());
+        telaAutoatendimento.iniciar();
+        telaAutoatendimento.setVisible(true);
+        SairComEsc.desviarPara(telaAutoatendimento::abrirSaidaFuncionario); // ESC pede login de administrador
+        Auditoria.registrar("AUTOATENDIMENTO_ABERTO", null);
+        getContentPane().repaint();
+    }
+
+    /** Fecha o autoatendimento (após a saída de um administrador) e atualiza os dados na hora. */
+    private void fecharAutoatendimento() {
+        telaAutoatendimento.encerrar();
+        telaAutoatendimento.setVisible(false);
+        SairComEsc.desviarPara(null); // ESC volta a perguntar "Deseja sair?"
+        Auditoria.registrar("AUTOATENDIMENTO_FECHADO", null);
+        atualizarTelaVisivel();
+        getContentPane().repaint();
+    }
+
+    // =========================================================================
+    // LOGO E ÍCONE DA JANELA
+    // =========================================================================
+
+    /** Bloco do topo da barra lateral com o logo (ou a letra "A" se a imagem não existir). */
     private JPanel criarLogo() {
         JPanel blocoLogo = new JPanel(new BorderLayout());
         blocoLogo.setBackground(new Color(10, 52, 102));
@@ -212,21 +363,16 @@ public class App extends JFrame {
         labelLogo.setHorizontalAlignment(SwingConstants.CENTER);
         labelLogo.setVerticalAlignment(SwingConstants.CENTER);
         blocoLogo.add(labelLogo, BorderLayout.CENTER);
-
         return blocoLogo;
     }
 
     private ImageIcon carregarLogo() {
         URL resource = getClass().getResource("/images/Logo_arcade.png");
-        if (resource != null) {
-            return new ImageIcon(resource);
-        }
-        return null;
+        return resource != null ? new ImageIcon(resource) : null;
     }
 
     private Image carregarIconeJanela() {
         ImageIcon logo = carregarLogo();
         return logo != null ? logo.getImage() : null;
     }
-    
 }
